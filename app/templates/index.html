@@ -116,33 +116,6 @@
             box-shadow: none;
         }
 
-        .progress-container {
-            display: none;
-            margin: 20px 0;
-        }
-
-        .progress-bar {
-            width: 100%;
-            height: 8px;
-            background: #f0f0f0;
-            border-radius: 4px;
-            overflow: hidden;
-            margin-bottom: 10px;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-
-        .progress-text {
-            text-align: center;
-            color: #666;
-            font-size: 0.9em;
-        }
-
         .results {
             margin-top: 30px;
         }
@@ -282,6 +255,112 @@
                 font-size: 3em;
             }
         }
+
+        #customModal {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+        #customModal .modal-backdrop {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.4);
+        }
+        #customModal .modal-content {
+            position: relative;
+            background: #fff;
+            border-radius: 16px;
+            padding: 32px 24px 24px 24px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+            z-index: 2;
+            min-width: 320px;
+            max-width: 90vw;
+            text-align: center;
+        }
+        #customModal .modal-title {
+            font-size: 1.3em;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: #764ba2;
+        }
+        #customModal .modal-message {
+            color: #333;
+            margin-bottom: 18px;
+        }
+        #customModal .modal-close {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border: none;
+            border-radius: 20px;
+            padding: 8px 28px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        #customModal .modal-close:hover {
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+        }
+        #loaderOverlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255,255,255,0.85);
+            z-index: 9998;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+        .loader-spinner {
+            border: 6px solid #f3f3f3;
+            border-top: 6px solid #764ba2;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 18px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loader-text {
+            font-size: 1.2em;
+            color: #764ba2;
+            font-weight: 600;
+            text-align: center;
+        }
+        .loader-progress-bar {
+            width: 220px;
+            height: 10px;
+            background: #e0e0e0;
+            border-radius: 6px;
+            margin-bottom: 18px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.08);
+        }
+        .loader-progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 6px;
+            transition: width 0.3s ease;
+        }
+        @media (max-width: 600px) {
+            #customModal .modal-content {
+                min-width: 90vw;
+                padding: 18px 8px 12px 8px;
+            }
+            #loaderOverlay .loader-text {
+                font-size: 1em;
+            }
+            .loader-progress-bar {
+                width: 90vw;
+            }
+        }
     </style>
 </head>
 <body>
@@ -306,14 +385,24 @@
             <button class="btn" id="convertBtn" style="display: none;">Convert to PDF</button>
         </div>
 
-        <div class="progress-container" id="progressContainer">
-            <div class="progress-bar">
-                <div class="progress-fill" id="progressFill"></div>
-            </div>
-            <div class="progress-text" id="progressText">Converting files...</div>
-        </div>
-
         <div class="results" id="results"></div>
+    </div>
+
+    <div id="customModal" style="display: none;">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-title">Notice</div>
+            <div class="modal-message" id="modalMessage"></div>
+            <button class="modal-close" id="modalCloseBtn">OK</button>
+        </div>
+    </div>
+
+    <div id="loaderOverlay" style="display: none;">
+        <div class="loader-spinner"></div>
+        <div class="loader-progress-bar">
+            <div class="loader-progress-fill" id="loaderProgressFill"></div>
+        </div>
+        <div class="loader-text" id="loaderText">Processing...</div>
     </div>
 
     <script>
@@ -321,13 +410,10 @@
         const fileInput = document.getElementById('fileInput');
         const fileList = document.getElementById('fileList');
         const convertBtn = document.getElementById('convertBtn');
-        const progressContainer = document.getElementById('progressContainer');
-        const progressFill = document.getElementById('progressFill');
-        const progressText = document.getElementById('progressText');
         const results = document.getElementById('results');
 
         let selectedFiles = [];
-        const maxFiles = 20;
+        const maxFiles = 50;
 
         // Drag and drop functionality
         uploadArea.addEventListener('dragover', (e) => {
@@ -355,6 +441,49 @@
             handleFiles(files);
         });
 
+        // Custom modal for errors
+        const modal = document.createElement('div');
+        modal.id = 'customModal';
+        modal.style.display = 'none';
+        modal.innerHTML = `
+            <div class="modal-backdrop"></div>
+            <div class="modal-content">
+                <div class="modal-title">Notice</div>
+                <div class="modal-message" id="modalMessage"></div>
+                <button class="modal-close" id="modalCloseBtn">OK</button>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        document.getElementById('modalCloseBtn').onclick = () => {
+            modal.style.display = 'none';
+        };
+        function showModal(message) {
+            document.getElementById('modalMessage').textContent = message;
+            modal.style.display = 'flex';
+        }
+        // Loader overlay
+        const loaderOverlay = document.createElement('div');
+        loaderOverlay.id = 'loaderOverlay';
+        loaderOverlay.style.display = 'none';
+        loaderOverlay.innerHTML = `
+            <div class="loader-spinner"></div>
+            <div class="loader-progress-bar">
+                <div class="loader-progress-fill" id="loaderProgressFill"></div>
+            </div>
+            <div class="loader-text" id="loaderText">Processing...</div>
+        `;
+        document.body.appendChild(loaderOverlay);
+        function showLoader(text) {
+            document.getElementById('loaderText').textContent = text || 'Processing...';
+            loaderOverlay.style.display = 'flex';
+        }
+        function hideLoader() {
+            loaderOverlay.style.display = 'none';
+        }
+        function updateLoaderProgress(percent) {
+            document.getElementById('loaderProgressFill').style.width = percent + '%';
+        }
+
         function handleFiles(files) {
             const validFiles = files.filter(file => {
                 const extension = file.name.split('.').pop().toLowerCase();
@@ -362,12 +491,12 @@
             });
 
             if (validFiles.length === 0) {
-                alert('Please select valid Word documents (.docx or .doc files)');
+                showModal('Please select valid Word documents (.docx or .doc files)');
                 return;
             }
 
             if (selectedFiles.length + validFiles.length > maxFiles) {
-                alert(`You can only upload up to ${maxFiles} files at a time. Please remove some files or upload in smaller batches.`);
+                showModal(`You can only upload up to ${maxFiles} files at a time. Please remove some files or upload in smaller batches.`);
                 return;
             }
 
@@ -424,9 +553,8 @@
             if (selectedFiles.length === 0) return;
 
             convertBtn.disabled = true;
-            progressContainer.style.display = 'block';
-            progressFill.style.width = '0%';
-            progressText.textContent = selectedFiles.length > 1 ? `Please wait, converting ${selectedFiles.length} files...` : 'Converting file...';
+            showLoader(selectedFiles.length > 1 ? `Please wait, converting ${selectedFiles.length} files...` : 'Converting file...');
+            updateLoaderProgress(0);
             results.innerHTML = '';
 
             const formData = new FormData();
@@ -440,7 +568,7 @@
                 const progressInterval = setInterval(() => {
                     progress += Math.random() * 15;
                     if (progress > 90) progress = 90;
-                    progressFill.style.width = progress + '%';
+                    updateLoaderProgress(progress);
                 }, 500);
 
                 const response = await fetch('/upload', {
@@ -449,13 +577,13 @@
                 });
 
                 clearInterval(progressInterval);
-                progressFill.style.width = '100%';
-                progressText.textContent = 'Downloading...';
+                updateLoaderProgress(100);
+                showLoader('Downloading...');
 
                 if (response.status === 413) {
                     results.innerHTML = `<div class="result-item error"><div class="result-header"><div class="result-title">Upload Error</div><div class="result-status error">Too Large</div></div><div class="error-message">Your upload is too large. Please select fewer or smaller files (max 100 MB total).</div></div>`;
                     convertBtn.disabled = false;
-                    progressContainer.style.display = 'none';
+                    hideLoader();
                     selectedFiles = [];
                     displayFileList();
                     return;
@@ -479,7 +607,7 @@
                     a.click();
                     a.remove();
                     window.URL.revokeObjectURL(url);
-                    progressContainer.style.display = 'none';
+                    hideLoader();
                     convertBtn.disabled = false;
                     selectedFiles = [];
                     displayFileList();
@@ -503,7 +631,7 @@
                 `;
             } finally {
                 convertBtn.disabled = false;
-                progressContainer.style.display = 'none';
+                hideLoader();
                 selectedFiles = [];
                 displayFileList();
             }
