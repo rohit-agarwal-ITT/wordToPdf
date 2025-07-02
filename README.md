@@ -1,26 +1,26 @@
 # Word to PDF Converter
 
-A Flask-based web application that converts Word documents (.docx and .doc) to PDF format. Users can upload single or multiple Word documents and download the converted PDF files.
+A Flask web application that converts Word documents (DOCX) to PDF format with high fidelity to the original formatting.
 
 ## Features
 
-- **Multiple File Upload**: Upload single or multiple Word documents at once
-- **Drag & Drop Interface**: Modern, responsive web interface with drag & drop functionality
-- **Batch Processing**: Convert multiple files simultaneously
-- **Format Preservation**: Maintains text formatting, tables, and basic styling
-- **Secure File Handling**: Unique file naming and secure file storage
-- **Real-time Progress**: Visual feedback during conversion process
+- **Batch Conversion**: Convert up to 100 files at once
+- **High Fidelity**: Preserves formatting, images, and layout using LibreOffice
+- **Modern UI**: Beautiful, responsive interface with progress tracking
+- **Fast Processing**: Optimized batch conversion with estimated time display
+- **ZIP Download**: Multiple files are automatically zipped for easy download
 
 ## Prerequisites
 
-- Python 3.11 or higher
-- Windows OS (for docx2pdf library compatibility)
+- Python 3.8+
+- LibreOffice (for PDF conversion)
+- Git
 
 ## Installation
 
-1. **Clone or download the project**:
+1. **Clone the repository**:
    ```bash
-   git clone <repository-url>
+   git clone <your-repo-url>
    cd wordToPdf
    ```
 
@@ -29,126 +29,225 @@ A Flask-based web application that converts Word documents (.docx and .doc) to P
    pip install -r requirements.txt
    ```
 
-## Usage
+3. **Install LibreOffice** (if not already installed):
+   - **Windows**: Download from [LibreOffice.org](https://www.libreoffice.org/download/download/)
+   - **macOS**: `brew install libreoffice`
+   - **Ubuntu/Debian**: `sudo apt-get install libreoffice`
 
-1. **Start the application**:
+4. **Set environment variables**:
    ```bash
-   python run.py
+   # Windows
+   set SECRET_KEY=your-secret-key-here
+   
+   # macOS/Linux
+   export SECRET_KEY=your-secret-key-here
    ```
 
-2. **Open your web browser** and navigate to:
+## Local Development
+
+Run the application locally:
+
+```bash
+python run.py
+```
+
+Or using Flask:
+
+```bash
+flask run --host=0.0.0.0 --port=5000
+```
+
+The app will be available at `http://localhost:5000`
+
+## Deployment Options
+
+### Option 1: Heroku (Recommended for beginners)
+
+1. **Install Heroku CLI** and login:
+   ```bash
+   heroku login
    ```
-   http://localhost:5000
+
+2. **Create Heroku app**:
+   ```bash
+   heroku create your-app-name
    ```
 
-3. **Upload Word documents**:
-   - Drag and drop Word files (.docx or .doc) onto the upload area
-   - Or click the upload area to browse and select files
-   - You can select multiple files at once
+3. **Set environment variables**:
+   ```bash
+   heroku config:set SECRET_KEY=your-secret-key-here
+   ```
 
-4. **Convert to PDF**:
-   - Click the "Convert to PDF" button
-   - Wait for the conversion process to complete
-   - Download the converted PDF files
+4. **Deploy**:
+   ```bash
+   git add .
+   git commit -m "Deploy to Heroku"
+   git push heroku main
+   ```
 
-## Project Structure
+5. **Open the app**:
+   ```bash
+   heroku open
+   ```
+
+### Option 2: Railway
+
+1. **Connect your GitHub repository** to Railway
+2. **Set environment variables** in Railway dashboard:
+   - `SECRET_KEY`: Your secret key
+3. **Deploy automatically** from your repository
+
+### Option 3: Render
+
+1. **Connect your GitHub repository** to Render
+2. **Create a new Web Service**
+3. **Configure**:
+   - Build Command: `pip install -r requirements.txt`
+   - Start Command: `gunicorn wsgi:app`
+4. **Set environment variables**:
+   - `SECRET_KEY`: Your secret key
+
+### Option 4: DigitalOcean App Platform
+
+1. **Connect your GitHub repository** to DigitalOcean
+2. **Create a new app**
+3. **Configure**:
+   - Source: Your repository
+   - Build Command: `pip install -r requirements.txt`
+   - Run Command: `gunicorn wsgi:app`
+4. **Set environment variables**
+
+### Option 5: VPS (Ubuntu/Debian)
+
+1. **SSH into your VPS**:
+   ```bash
+   ssh user@your-server-ip
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   sudo apt update
+   sudo apt install python3 python3-pip nginx libreoffice
+   ```
+
+3. **Clone and setup**:
+   ```bash
+   git clone <your-repo-url>
+   cd wordToPdf
+   pip3 install -r requirements.txt
+   ```
+
+4. **Create systemd service**:
+   ```bash
+   sudo nano /etc/systemd/system/wordtopdf.service
+   ```
+
+   Add this content:
+   ```ini
+   [Unit]
+   Description=Word to PDF Converter
+   After=network.target
+
+   [Service]
+   User=www-data
+   WorkingDirectory=/path/to/your/wordToPdf
+   Environment="PATH=/path/to/your/wordToPdf/venv/bin"
+   ExecStart=/path/to/your/wordToPdf/venv/bin/gunicorn wsgi:app
+   Restart=always
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+5. **Start the service**:
+   ```bash
+   sudo systemctl start wordtopdf
+   sudo systemctl enable wordtopdf
+   ```
+
+6. **Configure Nginx** (optional for domain):
+   ```bash
+   sudo nano /etc/nginx/sites-available/wordtopdf
+   ```
+
+   Add this content:
+   ```nginx
+   server {
+       listen 80;
+       server_name your-domain.com;
+
+       location / {
+           proxy_pass http://127.0.0.1:8000;
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+       }
+   }
+   ```
+
+   Enable the site:
+   ```bash
+   sudo ln -s /etc/nginx/sites-available/wordtopdf /etc/nginx/sites-enabled/
+   sudo nginx -t
+   sudo systemctl reload nginx
+   ```
+
+## Environment Variables
+
+- `SECRET_KEY`: Flask secret key (required for production)
+- `FLASK_ENV`: Set to `production` for production deployment
+
+## File Structure
 
 ```
 wordToPdf/
 ├── app/
-│   ├── __init__.py          # Flask application factory
-│   ├── routes.py            # Main routes and endpoints
-│   ├── utils/
-│   │   ├── __init__.py
-│   │   ├── word_processor.py # Word document processing
-│   │   └── pdf_generator.py  # PDF generation
-│   ├── static/
-│   │   ├── uploads/         # Temporary uploaded files
-│   │   └── downloads/       # Generated PDF files
-│   └── templates/
-│       └── index.html       # Main web interface
-├── samples/                 # Sample documents
+│   ├── __init__.py          # Flask app factory
+│   ├── routes.py            # Main routes
+│   ├── static/              # Static files (CSS, JS, uploads, downloads)
+│   ├── templates/           # HTML templates
+│   └── utils/               # Utility functions
+├── samples/                 # Sample files
 ├── requirements.txt         # Python dependencies
-├── run.py                  # Application entry point
-└── README.md               # This file
+├── wsgi.py                 # WSGI entry point
+├── Procfile               # Heroku configuration
+├── runtime.txt            # Python version
+└── README.md              # This file
 ```
 
-## Technical Details
+## Usage
 
-### Dependencies
+1. **Upload Files**: Drag and drop or click to select Word documents
+2. **Convert**: Click "Convert to PDF" button
+3. **Download**: Single files download as PDF, multiple files as ZIP
 
-- **Flask**: Web framework
-- **python-docx**: Word document processing
-- **reportlab**: PDF generation
-- **docx2pdf**: Direct Word to PDF conversion
-- **Pillow**: Image processing
-- **Werkzeug**: File handling utilities
+## Limitations
 
-### Supported File Formats
-
-- **Input**: Microsoft Word documents (.docx, .doc)
-- **Output**: PDF documents (.pdf)
-
-### File Size Limits
-
-- Maximum file size: 16MB per file
-- Multiple files can be processed simultaneously
-
-## API Endpoints
-
-- `GET /`: Main application interface
-- `POST /upload`: File upload and conversion endpoint
-- `GET /download/<filename>`: Download converted PDF files
-
-## Error Handling
-
-The application includes comprehensive error handling for:
-- Invalid file types
-- File size limits
-- Conversion errors
-- File not found errors
-
-## Security Features
-
-- Secure filename handling
-- File type validation
-- Unique file naming to prevent conflicts
-- Temporary file cleanup
+- Maximum 100 files per upload
+- Maximum 100MB total upload size
+- Requires LibreOffice for conversion
+- Files are temporarily stored and cleaned up automatically
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **"python-docx2pdf not found" error**:
-   - This is expected - the application uses alternative libraries for conversion
+1. **LibreOffice not found**: Ensure LibreOffice is installed and in PATH
+2. **Permission errors**: Check file permissions on upload/download folders
+3. **Memory issues**: Reduce batch size for large files
 
-2. **Conversion fails**:
-   - Ensure the Word document is not corrupted
-   - Check that the file is a valid .docx or .doc format
-   - Verify the file is not password-protected
+### Logs
 
-3. **Port already in use**:
-   - Change the port in `run.py` or stop other applications using port 5000
-
-### Performance Tips
-
-- For large documents, the conversion may take longer
-- The application processes files sequentially for stability
-- Consider breaking very large documents into smaller parts
-
-## Development
-
-To run in development mode with auto-reload:
-```bash
-python run.py
-```
-
-The application will be available at `http://localhost:5000` with debug mode enabled.
-
-## License
-
-This project is open source and available under the MIT License.
+- **Heroku**: `heroku logs --tail`
+- **Railway**: Check logs in dashboard
+- **VPS**: `sudo journalctl -u wordtopdf -f`
 
 ## Contributing
 
-Feel free to submit issues, feature requests, or pull requests to improve the application. 
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License. 
