@@ -276,29 +276,39 @@
             padding: 32px 24px 24px 24px;
             box-shadow: 0 8px 32px rgba(0,0,0,0.18);
             z-index: 2;
-            min-width: 320px;
-            max-width: 90vw;
-            text-align: center;
+            min-width: 260px;
+            min-height: 120px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1em;
         }
         #customModal .modal-title {
             font-size: 1.3em;
-            font-weight: 700;
-            margin-bottom: 12px;
+            font-weight: 600;
             color: #764ba2;
+            margin-bottom: 12px;
         }
         #customModal .modal-message {
-            color: #333;
-            margin-bottom: 18px;
+            color: #444;
+            margin-bottom: 22px;
+            text-align: center;
+            font-size: 1em;
+            min-height: 32px;
+            max-width: 320px;
+            word-break: break-word;
         }
         #customModal .modal-close {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: #fff;
             border: none;
-            border-radius: 20px;
-            padding: 8px 28px;
+            border-radius: 22px;
+            padding: 8px 32px;
             font-size: 1em;
             font-weight: 600;
             cursor: pointer;
+            margin-top: 8px;
             transition: background 0.2s;
         }
         #customModal .modal-close:hover {
@@ -413,7 +423,7 @@
         const results = document.getElementById('results');
 
         let selectedFiles = [];
-        const maxFiles = 50;
+        const maxFiles = 100;
 
         // Drag and drop functionality
         uploadArea.addEventListener('dragover', (e) => {
@@ -439,26 +449,22 @@
         fileInput.addEventListener('change', (e) => {
             const files = Array.from(e.target.files);
             handleFiles(files);
+            // Reset file input if over limit
+            if (selectedFiles.length > maxFiles) {
+                fileInput.value = '';
+            }
         });
 
         // Custom modal for errors
-        const modal = document.createElement('div');
-        modal.id = 'customModal';
-        modal.style.display = 'none';
-        modal.innerHTML = `
-            <div class="modal-backdrop"></div>
-            <div class="modal-content">
-                <div class="modal-title">Notice</div>
-                <div class="modal-message" id="modalMessage"></div>
-                <button class="modal-close" id="modalCloseBtn">OK</button>
-            </div>
-        `;
-        document.body.appendChild(modal);
-        document.getElementById('modalCloseBtn').onclick = () => {
+        const modal = document.getElementById('customModal');
+        const modalMessage = document.getElementById('modalMessage');
+        const modalCloseBtn = document.getElementById('modalCloseBtn');
+        modalCloseBtn.onclick = () => {
             modal.style.display = 'none';
         };
         function showModal(message) {
-            document.getElementById('modalMessage').textContent = message;
+            const msg = message && message.trim() ? message : 'An action was blocked. Please check your input and try again.';
+            modalMessage.textContent = msg;
             modal.style.display = 'flex';
         }
         // Loader overlay
@@ -496,7 +502,8 @@
             }
 
             if (selectedFiles.length + validFiles.length > maxFiles) {
-                showModal(`You can only upload up to ${maxFiles} files at a time. Please remove some files or upload in smaller batches.`);
+                showModal(`You can only upload up to ${maxFiles} files at a time. Please remove some files or upload in smaller batches. If you need to convert more, please split your upload into multiple batches of 100 files or less.`);
+                fileInput.value = '';
                 return;
             }
 
@@ -563,13 +570,33 @@
             });
 
             try {
-                // Show progress animation
-                let progress = 0;
-                const progressInterval = setInterval(() => {
-                    progress += Math.random() * 15;
-                    if (progress > 90) progress = 90;
-                    updateLoaderProgress(progress);
-                }, 500);
+                // Start progress polling
+                let progressInterval;
+                const startProgressPolling = () => {
+                    progressInterval = setInterval(async () => {
+                        try {
+                            const progressResponse = await fetch('/progress');
+                            const progressData = await progressResponse.json();
+                            
+                            if (progressData.status === 'converting') {
+                                const percent = progressData.total > 0 ? (progressData.current / progressData.total) * 100 : 0;
+                                updateLoaderProgress(percent);
+                                showLoader(progressData.message || 'Converting...');
+                            } else if (progressData.status === 'completed') {
+                                updateLoaderProgress(100);
+                                showLoader('Downloading...');
+                                clearInterval(progressInterval);
+                            } else if (progressData.status === 'error') {
+                                clearInterval(progressInterval);
+                                throw new Error(progressData.error || 'Conversion failed');
+                            }
+                        } catch (error) {
+                            console.error('Progress polling error:', error);
+                        }
+                    }, 500);
+                };
+
+                startProgressPolling();
 
                 const response = await fetch('/upload', {
                     method: 'POST',
@@ -577,8 +604,6 @@
                 });
 
                 clearInterval(progressInterval);
-                updateLoaderProgress(100);
-                showLoader('Downloading...');
 
                 if (response.status === 413) {
                     results.innerHTML = `<div class="result-item error"><div class="result-header"><div class="result-title">Upload Error</div><div class="result-status error">Too Large</div></div><div class="error-message">Your upload is too large. Please select fewer or smaller files (max 100 MB total).</div></div>`;
