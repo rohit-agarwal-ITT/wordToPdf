@@ -87,6 +87,32 @@
             font-size: 0.9em;
         }
 
+        .upload-limit {
+            color: #667eea;
+            font-size: 0.9em;
+            margin-top: 12px;
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #f0f4ff 0%, #e8f2ff 100%);
+            border-radius: 20px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid #d1e7ff;
+            font-weight: 500;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .upload-limit:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+        }
+
+        .upload-limit i {
+            color: #764ba2;
+            font-size: 1em;
+        }
+
         .file-input {
             display: none;
         }
@@ -386,6 +412,10 @@
             </div>
             <div class="upload-text">Drag & Drop your Word files here</div>
             <div class="upload-subtext">or click to browse files</div>
+            <div class="upload-limit">
+                <i class="fas fa-rocket"></i>
+                <span>Up to 100 files for lightning-fast conversion!</span>
+            </div>
             <input type="file" id="fileInput" class="file-input" multiple accept=".docx,.doc">
         </div>
 
