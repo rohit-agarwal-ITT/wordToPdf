@@ -598,6 +598,7 @@
                 let batchStartTime = null;
                 let batchDuration = null;
                 let batchFiles = selectedFiles.length;
+                let batchAnimationDone = false;
                 const startProgressPolling = () => {
                     progressInterval = setInterval(async () => {
                         try {
@@ -611,6 +612,7 @@
                                         updateLoaderProgress(0);
                                         batchStartTime = Date.now();
                                         batchDuration = Math.max(3, Math.round(batchFiles * 1.1) + 3); // add 3 second buffer
+                                        batchAnimationDone = false;
                                         let secondsMsg = batchDuration <= 10 ? 'a few seconds' : batchDuration + ' seconds';
                                         showLoader(`Converting files, please wait... (Estimated time: ${secondsMsg})`);
                                         batchAnimationInterval = setInterval(() => {
@@ -619,6 +621,7 @@
                                             updateLoaderProgress(progress);
                                             if (progress >= 99) {
                                                 clearInterval(batchAnimationInterval);
+                                                batchAnimationDone = true;
                                             }
                                         }, 200);
                                     }
@@ -632,10 +635,24 @@
                                     showLoader(progressData.message || 'Converting...');
                                 }
                             } else if (progressData.status === 'completed') {
-                                clearInterval(progressInterval);
-                                if (batchAnimationInterval) clearInterval(batchAnimationInterval);
-                                updateLoaderProgress(100);
-                                showLoader('Downloading...');
+                                // Wait for the batch animation to finish before showing Downloading...
+                                const finishDownload = () => {
+                                    clearInterval(progressInterval);
+                                    if (batchAnimationInterval) clearInterval(batchAnimationInterval);
+                                    updateLoaderProgress(100);
+                                    showLoader('Downloading...');
+                                };
+                                if (inBatchStep && !batchAnimationDone) {
+                                    // Wait for the animation to finish
+                                    let waitForAnimation = setInterval(() => {
+                                        if (batchAnimationDone) {
+                                            clearInterval(waitForAnimation);
+                                            finishDownload();
+                                        }
+                                    }, 100);
+                                } else {
+                                    finishDownload();
+                                }
                             } else if (progressData.status === 'error') {
                                 clearInterval(progressInterval);
                                 if (batchAnimationInterval) clearInterval(batchAnimationInterval);
