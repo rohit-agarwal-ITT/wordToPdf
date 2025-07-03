@@ -116,4 +116,33 @@ class WordProcessor:
             return info
             
         except Exception as e:
-            raise Exception(f"Error getting document info: {str(e)}") 
+            raise Exception(f"Error getting document info: {str(e)}")
+    
+    def fill_placeholders(self, template_path, output_path, data):
+        """
+        Fill placeholders in the format {FieldName} in the Word template with values from data dict.
+        Save the filled document to output_path.
+        """
+        if not os.path.exists(template_path):
+            raise FileNotFoundError(f"Template not found: {template_path}")
+        doc = Document(template_path)
+        # Replace in paragraphs
+        for paragraph in doc.paragraphs:
+            for key, value in data.items():
+                if f'{{{key}}}' in paragraph.text:
+                    inline = paragraph.runs
+                    for i in range(len(inline)):
+                        if f'{{{key}}}' in inline[i].text:
+                            inline[i].text = inline[i].text.replace(f'{{{key}}}', str(value))
+        # Replace in tables
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for paragraph in cell.paragraphs:
+                        for key, value in data.items():
+                            if f'{{{key}}}' in paragraph.text:
+                                inline = paragraph.runs
+                                for i in range(len(inline)):
+                                    if f'{{{key}}}' in inline[i].text:
+                                        inline[i].text = inline[i].text.replace(f'{{{key}}}', str(value))
+        doc.save(output_path) 
