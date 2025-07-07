@@ -6,14 +6,10 @@ from app.utils.word_processor import WordProcessor
 from app.utils.pdf_generator import PDFGenerator
 from docx2pdf import convert
 import io
-import pythoncom
 import subprocess
 import zipfile
 import tempfile
-import concurrent.futures
-import time
 import shutil
-import threading
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
