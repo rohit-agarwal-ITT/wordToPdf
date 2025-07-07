@@ -12,6 +12,7 @@ import tempfile
 import shutil
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import platform
 
 main = Blueprint('main', __name__)
 
@@ -50,7 +51,12 @@ def convert_single_file(file_info):
     """Convert a single file using LibreOffice - optimized for parallel processing"""
     file_path, filename = file_info
     output_dir = os.path.dirname(file_path)
-    soffice_path = r'C:\Program Files\LibreOffice\program\soffice.exe'
+    
+    # Replace all hardcoded soffice_path assignments with platform-aware logic
+    if platform.system() == "Windows":
+        soffice_path = r'C:\Program Files\LibreOffice\program\soffice.exe'
+    else:
+        soffice_path = 'soffice'
     
     try:
         # Convert using LibreOffice
@@ -124,7 +130,12 @@ def upload_file():
                     docx_files.append(docx_path)
                     update_progress(idx + 1, total_rows, f'Generated {idx + 1}/{total_rows} Word docs...')
             update_progress(total_rows, total_rows, 'Converting generated docs to PDF...')
-            soffice_path = r'C:\Program Files\LibreOffice\program\soffice.exe'
+            
+            # Replace all hardcoded soffice_path assignments with platform-aware logic
+            if platform.system() == "Windows":
+                soffice_path = r'C:\Program Files\LibreOffice\program\soffice.exe'
+            else:
+                soffice_path = 'soffice'
             try:
                 subprocess.run([
                     soffice_path, '--headless', '--convert-to', 'pdf', '--outdir', output_dir
@@ -241,7 +252,7 @@ def upload_file():
             update_progress(total_files, total_files, 'Converting files with LibreOffice...')
             
             # Batch convert all files in one soffice call
-            soffice_path = r'C:\Program Files\LibreOffice\program\soffice.exe'
+            
             docx_files = [os.path.join(temp_dir, f) for f in os.listdir(temp_dir) if f.lower().endswith(('.docx', '.doc'))]
             
             if not docx_files:
@@ -251,6 +262,11 @@ def upload_file():
                 shutil.rmtree(output_dir)
                 return jsonify({'error': 'No valid DOCX/DOC files found.'}), 400
             
+            # Replace all hardcoded soffice_path assignments with platform-aware logic
+            if platform.system() == "Windows":
+                soffice_path = r'C:\Program Files\LibreOffice\program\soffice.exe'
+            else:
+                soffice_path = 'soffice'
             try:
                 subprocess.run([
                     soffice_path, '--headless', '--convert-to', 'pdf', '--outdir', output_dir
