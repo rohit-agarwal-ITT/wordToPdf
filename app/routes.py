@@ -102,7 +102,7 @@ def upload_file():
     
     # Excel to Word to PDF batch logic
     if len(files) == 1 and files[0].filename.lower().endswith('.xlsx'):
-        word_template = os.path.join('samples', 'sample_word_document.docx')
+        word_template = os.path.join('samples', 'sample_document_for_placeholder.docx')
         temp_dir = tempfile.mkdtemp()
         output_dir = tempfile.mkdtemp()
         pdf_files = []
@@ -114,12 +114,13 @@ def upload_file():
             df = pd.read_excel(excel_path)
             total_rows = len(df)
             update_progress(0, total_rows, 'Generating Word documents from Excel...')
-            wp = WordProcessor()
+            
             def generate_docx(row_tuple):
                 i, row = row_tuple
                 data = {str(col): str(row[col]) for col in df.columns}
                 docx_name = f"{data.get('Name', 'Candidate')}_{i+1}.docx"
                 docx_path = os.path.join(temp_dir, docx_name)
+                wp = WordProcessor()  # Create a new instance per row/thread
                 wp.fill_placeholders(word_template, docx_path, data)
                 return docx_path
             docx_files = []
