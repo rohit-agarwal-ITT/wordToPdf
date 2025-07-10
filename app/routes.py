@@ -91,17 +91,17 @@ def upload_file():
     global conversion_progress
     
     if 'files[]' not in request.files:
-        return jsonify({'error': 'No files provided'}), 400
+        return jsonify({'error': 'No files were provided. Please select at least one Word or Excel file to upload.'}), 400
     
     files = request.files.getlist('files[]')
-    if not files or files[0].filename == '':
-        return jsonify({'error': 'No files selected'}), 400
+    if not files or files[0].filename == '' or files[0].filename is None:
+        return jsonify({'error': 'No files selected. Please choose a file to upload.'}), 400
     
     # Reset progress for new conversion
     reset_progress()
     
     # Excel to Word to PDF batch logic
-    if len(files) == 1 and files[0].filename.lower().endswith('.xlsx'):
+    if len(files) == 1 and files[0].filename and files[0].filename.lower().endswith('.xlsx'):
         word_template = os.path.join('samples', 'sample_document_for_placeholder.docx')
         temp_dir = tempfile.mkdtemp()
         output_dir = tempfile.mkdtemp()
@@ -109,11 +109,18 @@ def upload_file():
         errors = []
         try:
             excel_file = files[0]
-            excel_path = os.path.join(temp_dir, secure_filename(excel_file.filename))
+            if not excel_file.filename:
+                return jsonify({'error': 'Uploaded Excel file has no filename. Please re-upload.'}), 400
+            excel_path = os.path.join(temp_dir, secure_filename(excel_file.filename or 'uploaded.xlsx'))
             excel_file.save(excel_path)
-            df = pd.read_excel(excel_path)
+            try:
+                df = pd.read_excel(excel_path)
+            except Exception as e:
+                return jsonify({'error': f'Failed to read Excel file. Please check your file format. Details: {str(e)}'}), 400
+            if df is None or df.empty:
+                return jsonify({'error': 'The uploaded Excel file is empty or invalid. Please provide a valid file with data.'}), 400
             total_rows = len(df)
-            update_progress(0, total_rows, 'Generating Word documents from Excel...')
+            update_progress(0, total_rows, 'Generating Word documents from Excel. Please wait...')
             
             def generate_docx(row_tuple):
                 i, row = row_tuple
@@ -129,8 +136,8 @@ def upload_file():
                 for idx, future in enumerate(as_completed(futures)):
                     docx_path = future.result()
                     docx_files.append(docx_path)
-                    update_progress(idx + 1, total_rows, f'Generated {idx + 1}/{total_rows} Word docs...')
-            update_progress(total_rows, total_rows, 'Converting generated docs to PDF...')
+                    update_progress(idx + 1, total_rows, f'Generated {idx + 1} of {total_rows} Word documents. Please wait...')
+            update_progress(total_rows, total_rows, 'Converting generated documents to PDF. This may take a moment...')
             
             # Replace all hardcoded soffice_path assignments with platform-aware logic
             if platform.system() == "Windows":
@@ -143,10 +150,10 @@ def upload_file():
                 ] + docx_files, check=True)
             except Exception as e:
                 conversion_progress['status'] = 'error'
-                conversion_progress['error'] = f'LibreOffice batch conversion failed: {e}'
+                conversion_progress['error'] = f'Failed to convert Word documents to PDF. Please ensure LibreOffice is installed. Details: {e}'
                 shutil.rmtree(temp_dir)
                 shutil.rmtree(output_dir)
-                return jsonify({'error': f'LibreOffice batch conversion failed: {e}'}), 500
+                return jsonify({'error': conversion_progress['error']}), 500
             update_progress(total_rows, total_rows, 'Collecting converted PDFs...')
             for docx_file in docx_files:
                 base = os.path.splitext(os.path.basename(docx_file))[0]
@@ -158,11 +165,11 @@ def upload_file():
                     errors.append(f'PDF not found for {base}')
             if errors:
                 conversion_progress['status'] = 'error'
-                conversion_progress['error'] = '; '.join(errors)
+                conversion_progress['error'] = 'Some PDFs could not be generated: ' + '; '.join(errors)
                 shutil.rmtree(temp_dir)
                 shutil.rmtree(output_dir)
-                return jsonify({'error': '; '.join(errors)}), 500
-            update_progress(total_rows, total_rows, 'Creating ZIP file...')
+                return jsonify({'error': conversion_progress['error']}), 500
+            update_progress(total_rows, total_rows, 'Creating ZIP file. Almost done!')
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zip_file:
                 for pdf_path, pdf_name in pdf_files:
@@ -172,6 +179,7 @@ def upload_file():
             shutil.rmtree(output_dir)
             zip_buffer.seek(0)
             conversion_progress['status'] = 'completed'
+            update_progress(total_rows, total_rows, 'Conversion complete! Your files are ready for download.')
             return send_file(
                 zip_buffer,
                 as_attachment=True,
@@ -180,21 +188,21 @@ def upload_file():
             )
         except Exception as e:
             conversion_progress['status'] = 'error'
-            conversion_progress['error'] = f'Error processing Excel: {e}'
+            conversion_progress['error'] = f'An unexpected error occurred while processing your Excel file. Details: {e}'
             shutil.rmtree(temp_dir)
             shutil.rmtree(output_dir)
-            return jsonify({'error': f'Error processing Excel: {e}'}), 500
+            return jsonify({'error': conversion_progress['error']}), 500
     
     # Handle single file case
     if len(files) == 1:
         file = files[0]
         if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
+            filename = secure_filename(file.filename or 'uploaded.docx')
             unique_filename = f"{uuid.uuid4().hex}_{filename}"
             input_path = os.path.join(current_app.config['UPLOAD_FOLDER'], unique_filename)
             file.save(input_path)
             
-            update_progress(0, 1, f'Converting {filename}...')
+            update_progress(0, 1, f'Converting {filename}. Please wait...')
             
             # Convert single file
             result = convert_single_file((input_path, filename))
@@ -202,11 +210,11 @@ def upload_file():
             
             if error or output_pdf is None:
                 conversion_progress['status'] = 'error'
-                conversion_progress['error'] = error or 'Conversion failed'
+                conversion_progress['error'] = f'Failed to convert file: {error or "Unknown error"}. Please check your file and try again.'
                 os.remove(input_path)
-                return jsonify({'error': error or 'Conversion failed'}), 500
+                return jsonify({'error': conversion_progress['error']}), 500
             
-            update_progress(1, 1, 'Preparing download...')
+            update_progress(1, 1, 'Preparing download. Almost done!')
             
             # Read PDF and clean up
             with open(output_pdf, 'rb') as f:
@@ -215,6 +223,7 @@ def upload_file():
             os.remove(output_pdf)
             
             conversion_progress['status'] = 'completed'
+            update_progress(1, 1, 'Conversion complete! Your file is ready for download.')
             
             return send_file(
                 io.BytesIO(pdf_data),
@@ -239,18 +248,18 @@ def upload_file():
             # Save all files to temp_dir
             for i, file in enumerate(files):
                 if file and allowed_file(file.filename):
-                    filename = secure_filename(file.filename)
+                    filename = secure_filename(file.filename or f'file_{i}.docx')
                     file_path = os.path.join(temp_dir, filename)
                     file.save(file_path)
-                    update_progress(i + 1, total_files, f'Prepared {i + 1}/{total_files} files...')
+                    update_progress(i + 1, total_files, f'Prepared {i + 1} of {total_files} files. Please wait...')
                 else:
                     conversion_progress['status'] = 'error'
-                    conversion_progress['error'] = f'Invalid file type for {file.filename}'
+                    conversion_progress['error'] = f'Invalid file type for {file.filename}. Only .docx, .doc, and .xlsx files are allowed.'
                     shutil.rmtree(temp_dir)
                     shutil.rmtree(output_dir)
-                    return jsonify({'error': f'Invalid file type for {file.filename}. Only .docx, .doc, and .xlsx files are allowed.'}), 400
+                    return jsonify({'error': conversion_progress['error']}), 400
             
-            update_progress(total_files, total_files, 'Converting files with LibreOffice...')
+            update_progress(total_files, total_files, 'Converting files to PDF. This may take a moment...')
             
             # Batch convert all files in one soffice call
             
@@ -258,10 +267,10 @@ def upload_file():
             
             if not docx_files:
                 conversion_progress['status'] = 'error'
-                conversion_progress['error'] = 'No valid DOCX/DOC files found'
+                conversion_progress['error'] = 'No valid DOCX/DOC files found. Please upload valid Word documents.'
                 shutil.rmtree(temp_dir)
                 shutil.rmtree(output_dir)
-                return jsonify({'error': 'No valid DOCX/DOC files found.'}), 400
+                return jsonify({'error': conversion_progress['error']}), 400
             
             # Replace all hardcoded soffice_path assignments with platform-aware logic
             if platform.system() == "Windows":
@@ -274,10 +283,10 @@ def upload_file():
                 ] + docx_files, check=True)
             except Exception as e:
                 conversion_progress['status'] = 'error'
-                conversion_progress['error'] = f'LibreOffice batch conversion failed: {e}'
+                conversion_progress['error'] = f'Failed to convert files to PDF. Please ensure LibreOffice is installed. Details: {e}'
                 shutil.rmtree(temp_dir)
                 shutil.rmtree(output_dir)
-                return jsonify({'error': f'LibreOffice batch conversion failed: {e}'}), 500
+                return jsonify({'error': conversion_progress['error']}), 500
             
             update_progress(total_files, total_files, 'Collecting converted PDFs...')
             
@@ -293,12 +302,12 @@ def upload_file():
             
             if errors:
                 conversion_progress['status'] = 'error'
-                conversion_progress['error'] = '; '.join(errors)
+                conversion_progress['error'] = 'Some PDFs could not be generated: ' + '; '.join(errors)
                 shutil.rmtree(temp_dir)
                 shutil.rmtree(output_dir)
-                return jsonify({'error': '; '.join(errors)}), 500
+                return jsonify({'error': conversion_progress['error']}), 500
             
-            update_progress(total_files, total_files, 'Creating ZIP file...')
+            update_progress(total_files, total_files, 'Creating ZIP file. Almost done!')
             
             # Zip all PDFs
             zip_buffer = io.BytesIO()
@@ -312,6 +321,7 @@ def upload_file():
             zip_buffer.seek(0)
             
             conversion_progress['status'] = 'completed'
+            update_progress(total_files, total_files, 'Conversion complete! Your files are ready for download.')
             
             return send_file(
                 zip_buffer,
@@ -321,10 +331,10 @@ def upload_file():
             )
         except Exception as e:
             conversion_progress['status'] = 'error'
-            conversion_progress['error'] = f'Error processing files: {e}'
+            conversion_progress['error'] = f'An unexpected error occurred while processing your files. Details: {e}'
             shutil.rmtree(temp_dir)
             shutil.rmtree(output_dir)
-            return jsonify({'error': f'Error processing files: {e}'}), 500
+            return jsonify({'error': conversion_progress['error']}), 500
 
 @main.route('/download/<filename>')
 def download_file(filename):
