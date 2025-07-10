@@ -57,6 +57,7 @@
             transition: all 0.3s ease;
             cursor: pointer;
             background: #fafafa;
+            position: relative;
         }
 
         .upload-area:hover {
@@ -68,6 +69,11 @@
             border-color: #667eea;
             background: #e8f2ff;
             transform: scale(1.02);
+        }
+
+        .upload-area:focus {
+            outline: 2px solid #667eea;
+            outline-offset: 2px;
         }
 
         .upload-icon {
@@ -140,6 +146,11 @@
             cursor: not-allowed;
             transform: none;
             box-shadow: none;
+        }
+
+        .btn:focus {
+            outline: 2px solid #667eea;
+            outline-offset: 2px;
         }
 
         .results {
@@ -226,11 +237,18 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            transition: all 0.3s ease;
+        }
+
+        .file-item:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
         }
 
         .file-info {
             display: flex;
             align-items: center;
+            flex: 1;
         }
 
         .file-icon {
@@ -239,15 +257,41 @@
             margin-right: 15px;
         }
 
+        .file-details {
+            flex: 1;
+        }
+
         .file-name {
             font-weight: 600;
             color: #333;
+            margin-bottom: 4px;
         }
 
         .file-size {
             color: #666;
             font-size: 0.9em;
+        }
+
+        .file-status {
+            font-size: 0.8em;
+            padding: 2px 8px;
+            border-radius: 10px;
             margin-left: 10px;
+        }
+
+        .file-status.ready {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .file-status.processing {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .file-status.error {
+            background: #f8d7da;
+            color: #721c24;
         }
 
         .remove-file {
@@ -258,10 +302,40 @@
             border-radius: 15px;
             cursor: pointer;
             font-size: 0.8em;
+            transition: all 0.3s ease;
         }
 
         .remove-file:hover {
             background: #c82333;
+            transform: scale(1.1);
+        }
+
+        .remove-file:focus {
+            outline: 2px solid #dc3545;
+            outline-offset: 2px;
+        }
+
+        .file-preview {
+            margin-top: 10px;
+            padding: 10px;
+            background: #fff;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+            font-size: 0.8em;
+            color: #666;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+
+
+
+        .accessibility-info {
+            position: fixed;
+            top: -100px;
+            left: -100px;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
         }
 
         @media (max-width: 768px) {
@@ -280,6 +354,22 @@
             .upload-icon {
                 font-size: 3em;
             }
+
+            .file-item {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .file-info {
+                margin-bottom: 10px;
+                width: 100%;
+            }
+
+            .remove-file {
+                align-self: flex-end;
+            }
+
+
         }
 
         #customModal {
@@ -400,23 +490,27 @@
     </style>
 </head>
 <body>
+    <div class="accessibility-info" id="accessibilityInfo" aria-live="polite"></div>
+    
     <div class="container">
         <div class="header">
             <h1><i class="fas fa-file-word"></i> Word & Excel to PDF Converter</h1>
             <p>Convert your Word or Excel files to PDF format easily and securely.<br>Upload an Excel sheet to generate personalized PDFs for each row automatically!</p>
         </div>
 
-        <div class="upload-area" id="uploadArea">
+
+
+        <div class="upload-area" id="uploadArea" tabindex="0" role="button" aria-label="Upload files by clicking or dragging and dropping">
             <div class="upload-icon">
                 <i class="fas fa-cloud-upload-alt"></i>
             </div>
             <div class="upload-text">Drag & Drop your Word or Excel files here</div>
-            <div class="upload-subtext">or click to browse files<br><span style="font-size:0.95em;color:#764ba2;">• Upload <b>.docx</b>, <b>.doc</b>, or <b>.xlsx</b> files<br>• Excel upload will generate a PDF for each row</span></div>
+            <div class="upload-subtext">or click to browse files<br><span style="font-size:0.95em;color:#764ba2;">• Upload <b>.docx</b>, <b>.doc</b>, or <b>.xlsx</b> files<br>• Excel upload will generate a PDF for each row (takes longer)</span></div>
             <div class="upload-limit">
                 <i class="fas fa-rocket"></i>
                 <span>Up to 100 files for lightning-fast conversion!</span>
             </div>
-            <input type="file" id="fileInput" class="file-input" multiple accept=".docx,.doc,.xlsx">
+            <input type="file" id="fileInput" class="file-input" multiple accept=".docx,.doc,.xlsx" aria-label="Select files to upload">
         </div>
 
         <div class="file-list" id="fileList" style="display: none;"></div>
@@ -451,14 +545,24 @@
         const fileList = document.getElementById('fileList');
         const convertBtn = document.getElementById('convertBtn');
         const results = document.getElementById('results');
+        const accessibilityInfo = document.getElementById('accessibilityInfo');
 
         let selectedFiles = [];
         const maxFiles = 100;
 
-        // Drag and drop functionality
+        // Accessibility functions
+        function announceToScreenReader(message) {
+            accessibilityInfo.textContent = message;
+            setTimeout(() => {
+                accessibilityInfo.textContent = '';
+            }, 1000);
+        }
+
+        // Enhanced drag and drop functionality
         uploadArea.addEventListener('dragover', (e) => {
             e.preventDefault();
             uploadArea.classList.add('dragover');
+            announceToScreenReader('Files can be dropped here');
         });
 
         uploadArea.addEventListener('dragleave', () => {
@@ -470,16 +574,23 @@
             uploadArea.classList.remove('dragover');
             const files = Array.from(e.dataTransfer.files);
             handleFiles(files);
+            announceToScreenReader(`${files.length} files dropped`);
         });
 
         uploadArea.addEventListener('click', () => {
             fileInput.click();
         });
 
+        uploadArea.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                fileInput.click();
+            }
+        });
+
         fileInput.addEventListener('change', (e) => {
             const files = Array.from(e.target.files);
             handleFiles(files);
-            // Reset file input if over limit
             if (selectedFiles.length > maxFiles) {
                 fileInput.value = '';
             }
@@ -491,23 +602,32 @@
         const modalCloseBtn = document.getElementById('modalCloseBtn');
         modalCloseBtn.onclick = () => {
             modal.style.display = 'none';
+            announceToScreenReader('Modal closed');
         };
+        
         function showModal(message) {
             const msg = message && message.trim() ? message : 'An action was blocked. Please check your input and try again.';
             modalMessage.textContent = msg;
             modal.style.display = 'flex';
+            announceToScreenReader('Error modal opened: ' + msg);
         }
+
         // Loader overlay
         const loaderOverlay = document.getElementById('loaderOverlay');
         const loaderProgressFill = document.getElementById('loaderProgressFill');
         const loaderText = document.getElementById('loaderText');
+        
         function showLoader(text) {
             loaderText.textContent = text || 'Processing...';
             loaderOverlay.style.display = 'flex';
+            announceToScreenReader(text || 'Processing started');
         }
+        
         function hideLoader() {
             loaderOverlay.style.display = 'none';
+            announceToScreenReader('Processing completed');
         }
+        
         function updateLoaderProgress(percent) {
             loaderProgressFill.style.width = percent + '%';
         }
@@ -532,7 +652,10 @@
             selectedFiles = [...selectedFiles, ...validFiles];
             displayFileList();
             convertBtn.style.display = 'inline-block';
+            announceToScreenReader(`${validFiles.length} files added. Total: ${selectedFiles.length} files`);
         }
+
+
 
         function displayFileList() {
             if (selectedFiles.length === 0) {
@@ -552,12 +675,13 @@
                         <div class="file-icon">
                             <i class="fas fa-file-word"></i>
                         </div>
-                        <div>
+                        <div class="file-details">
                             <div class="file-name">${file.name}</div>
                             <div class="file-size">${formatFileSize(file.size)}</div>
                         </div>
+                        <div class="file-status ready">Ready</div>
                     </div>
-                    <button class="remove-file" onclick="removeFile(${index})">
+                    <button class="remove-file" onclick="removeFile(${index})" aria-label="Remove ${file.name}">
                         <i class="fas fa-times"></i>
                     </button>
                 `;
@@ -566,8 +690,10 @@
         }
 
         function removeFile(index) {
+            const removedFile = selectedFiles[index];
             selectedFiles.splice(index, 1);
             displayFileList();
+            announceToScreenReader(`Removed ${removedFile.name}`);
         }
 
         function formatFileSize(bytes) {
@@ -599,29 +725,65 @@
                 let batchDuration = null;
                 let batchFiles = selectedFiles.length;
                 let batchAnimationDone = false;
+                
                 const startProgressPolling = () => {
                     progressInterval = setInterval(async () => {
                         try {
                             const progressResponse = await fetch('/progress');
                             const progressData = await progressResponse.json();
+                            
                             if (progressData.status === 'converting') {
-                                // Uniform progress bar animation from 0% to 99% over estimated time
                                 if (progressData.message && progressData.message.toLowerCase().includes('converting files with libreoffice')) {
                                     if (!inBatchStep) {
                                         inBatchStep = true;
                                         updateLoaderProgress(0);
                                         batchStartTime = Date.now();
-                                        batchDuration = Math.max(3, Math.round(batchFiles * 1.1) + 3); // add 3 second buffer
+                                        // More accurate duration calculation for Excel processing
+                                        let baseDuration = 0;
+                                        const excelFiles = selectedFiles.filter(file => file.name.toLowerCase().endsWith('.xlsx'));
+                                        if (excelFiles.length > 0) {
+                                            // Excel processing: 1.5 seconds per row + 2 seconds overhead
+                                            baseDuration = Math.max(10, excelFiles.length * 1.5); // Based on real-world timing
+                                        } else {
+                                            // Word files: 3 seconds per file
+                                            baseDuration = Math.max(5, batchFiles * 3);
+                                        }
+                                        batchDuration = Math.ceil(baseDuration * 1.2); // Add 20% buffer
                                         batchAnimationDone = false;
-                                        let secondsMsg = batchDuration <= 10 ? 'a few seconds' : batchDuration + ' seconds';
-                                        showLoader(`Converting files, please wait... (Estimated time: ${secondsMsg})`);
+                                        
+                                        let timeDisplay = '';
+                                        if (batchDuration < 60) {
+                                            timeDisplay = batchDuration + ' seconds';
+                                        } else if (batchDuration < 3600) {
+                                            const minutes = Math.floor(batchDuration / 60);
+                                            const seconds = batchDuration % 60;
+                                            timeDisplay = minutes + 'm ' + seconds + 's';
+                                        } else {
+                                            const hours = Math.floor(batchDuration / 3600);
+                                            const minutes = Math.floor((batchDuration % 3600) / 60);
+                                            timeDisplay = hours + 'h ' + minutes + 'm';
+                                        }
+                                        
+                                        showLoader(`Converting files, please wait... (Estimated time: ${timeDisplay})`);
+                                        
                                         batchAnimationInterval = setInterval(() => {
                                             let elapsed = (Date.now() - batchStartTime) / 1000;
                                             let progress = Math.min(99, (elapsed / batchDuration) * 99);
                                             updateLoaderProgress(progress);
                                             let remaining = Math.max(0, Math.ceil(batchDuration - elapsed));
-                                            let secondsMsg = remaining <= 10 ? 'a few seconds' : remaining + ' seconds';
-                                            showLoader(`Converting files, please wait... (Remaining time: ${secondsMsg})`);
+                                            let remainingDisplay = '';
+                                            if (remaining < 60) {
+                                                remainingDisplay = remaining <= 10 ? 'a few seconds' : remaining + ' seconds';
+                                            } else if (remaining < 3600) {
+                                                const minutes = Math.floor(remaining / 60);
+                                                const seconds = remaining % 60;
+                                                remainingDisplay = minutes + 'm ' + seconds + 's';
+                                            } else {
+                                                const hours = Math.floor(remaining / 3600);
+                                                const minutes = Math.floor((remaining % 3600) / 60);
+                                                remainingDisplay = hours + 'h ' + minutes + 'm';
+                                            }
+                                            showLoader(`Converting files, please wait... (Remaining time: ${remainingDisplay})`);
                                             if (progress >= 99) {
                                                 clearInterval(batchAnimationInterval);
                                                 batchAnimationDone = true;
@@ -633,12 +795,10 @@
                                         inBatchStep = false;
                                         clearInterval(batchAnimationInterval);
                                     }
-                                    // For pre-batch steps, keep at 0%
                                     updateLoaderProgress(0);
                                     showLoader(progressData.message || 'Converting...');
                                 }
                             } else if (progressData.status === 'completed') {
-                                // Wait for the batch animation to finish before showing Downloading...
                                 const finishDownload = () => {
                                     clearInterval(progressInterval);
                                     if (batchAnimationInterval) clearInterval(batchAnimationInterval);
@@ -646,7 +806,6 @@
                                     showLoader('Downloading...');
                                 };
                                 if (inBatchStep && !batchAnimationDone) {
-                                    // Wait for the animation to finish
                                     let waitForAnimation = setInterval(() => {
                                         if (batchAnimationDone) {
                                             clearInterval(waitForAnimation);
@@ -688,11 +847,9 @@
 
                 const contentType = response.headers.get('content-type');
                 if (contentType && (contentType.includes('application/pdf') || contentType.includes('application/zip'))) {
-                    // Handle PDF or ZIP download
                     const blob = await response.blob();
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
-                    // Try to get filename from Content-Disposition header
                     let filename = contentType.includes('application/pdf') ? 'document.pdf' : 'Appointment_letters.zip';
                     const disposition = response.headers.get('content-disposition');
                     if (disposition && disposition.indexOf('filename=') !== -1) {
@@ -710,10 +867,10 @@
                     displayFileList();
                     const fileType = contentType.includes('application/pdf') ? 'PDF' : 'ZIP file';
                     results.innerHTML = `<div class="result-item success"><div class="result-header"><div class="result-title">Success</div><div class="result-status success">Downloaded</div></div><div>${fileType} downloaded successfully.</div></div>`;
+                    announceToScreenReader('Conversion completed successfully');
                     return;
                 }
 
-                // Otherwise, handle as JSON error
                 const data = await response.json();
                 throw new Error(data.error || 'Conversion failed');
             } catch (error) {
@@ -726,6 +883,7 @@
                         <div class="error-message">${error.message}</div>
                     </div>
                 `;
+                announceToScreenReader('Conversion failed: ' + error.message);
             } finally {
                 convertBtn.disabled = false;
                 hideLoader();

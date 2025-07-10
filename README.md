@@ -1,253 +1,242 @@
-# Word to PDF Converter
+# Word & Excel to PDF Converter
 
-A Flask web application that converts Word documents (DOCX) to PDF format with high fidelity to the original formatting.
+A modern, secure, and high-performance web application for converting Word and Excel files to PDF format. Built with Flask and featuring comprehensive error handling, security measures, and user-friendly interface.
 
-## Features
+## ✨ Features
 
-- **Batch Conversion**: Convert up to 100 files at once
-- **High Fidelity**: Preserves formatting, images, and layout using LibreOffice
-- **Modern UI**: Beautiful, responsive interface with progress tracking
-- **Fast Processing**: Optimized batch conversion with estimated time display
-- **ZIP Download**: Multiple files are automatically zipped for easy download
+### 🔄 Conversion Capabilities
+- **Single File Conversion**: Convert individual Word (.docx, .doc) files to PDF
+- **Batch Processing**: Convert multiple files simultaneously with progress tracking
+- **Excel to PDF**: Upload Excel files to generate personalized PDFs for each row
+- **Template Support**: Use Word templates with placeholders for dynamic content
 
-## Prerequisites
+### 🛡️ Security & Validation
+- **File Type Validation**: Comprehensive MIME type and extension checking
+- **Path Traversal Protection**: Secure file handling and sanitization
+- **Size Limits**: Configurable file size limits (default: 100MB)
+- **Input Sanitization**: Automatic filename sanitization and validation
+- **Secure Temp Files**: Proper file permissions and cleanup
 
+### 📊 Performance & Monitoring
+- **Performance Tracking**: Monitor conversion times and resource usage
+- **System Health Checks**: Automatic validation of system resources
+- **Progress Tracking**: Real-time progress updates with estimated completion times
+- **Resource Management**: Memory and disk space monitoring
+
+### 🎨 User Experience
+- **Modern UI**: Beautiful, responsive design with drag-and-drop support
+- **Accessibility**: Full keyboard navigation and screen reader support
+- **Real-time Feedback**: Progress bars, status updates, and error messages
+- **File Preview**: Visual file list with size and status information
+- **Statistics Dashboard**: File count, total size, and estimated processing time
+
+### ⚙️ Configuration & Management
+- **Environment-based Config**: Support for environment variables and config files
+- **Feature Flags**: Enable/disable features via configuration
+- **Logging**: Comprehensive logging with rotation and size limits
+- **Error Handling**: Graceful error handling with user-friendly messages
+
+## 🚀 Quick Start
+
+### Prerequisites
 - Python 3.8+
 - LibreOffice (for PDF conversion)
-- Git
+- 500MB+ free memory
+- 1GB+ free disk space
 
-## Installation
+### Installation
 
-1. **Clone the repository**:
+1. **Clone the repository**
    ```bash
-   git clone <your-repo-url>
+   git clone <repository-url>
    cd wordToPdf
    ```
 
-2. **Install Python dependencies**:
+2. **Install dependencies**
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Install LibreOffice** (if not already installed):
-   - **Windows**: Download from [LibreOffice.org](https://www.libreoffice.org/download/download/)
+3. **Install LibreOffice** (if not already installed)
+   - **Windows**: Download from [LibreOffice.org](https://www.libreoffice.org/)
    - **macOS**: `brew install libreoffice`
-   - **Ubuntu/Debian**: `sudo apt-get install libreoffice`
+   - **Linux**: `sudo apt-get install libreoffice`
 
-4. **Set environment variables**:
+4. **Run the application**
    ```bash
-   # Windows
-   set SECRET_KEY=your-secret-key-here
-   
-   # macOS/Linux
-   export SECRET_KEY=your-secret-key-here
+   python run.py
    ```
 
-## Local Development
+5. **Access the application**
+   Open your browser and navigate to `http://localhost:5000`
 
-Run the application locally:
-
-```bash
-python run.py
-```
-
-Or using Flask:
-
-```bash
-flask run --host=0.0.0.0 --port=5000
-```
-
-The app will be available at `http://localhost:5000`
-
-## Deployment Options
-
-### Option 1: Heroku (Recommended for beginners)
-
-1. **Install Heroku CLI** and login:
-   ```bash
-   heroku login
-   ```
-
-2. **Create Heroku app**:
-   ```bash
-   heroku create your-app-name
-   ```
-
-3. **Set environment variables**:
-   ```bash
-   heroku config:set SECRET_KEY=your-secret-key-here
-   ```
-
-4. **Deploy**:
-   ```bash
-   git add .
-   git commit -m "Deploy to Heroku"
-   git push heroku main
-   ```
-
-5. **Open the app**:
-   ```bash
-   heroku open
-   ```
-
-### Option 2: Railway
-
-1. **Connect your GitHub repository** to Railway
-2. **Set environment variables** in Railway dashboard:
-   - `SECRET_KEY`: Your secret key
-3. **Deploy automatically** from your repository
-
-### Option 3: Render
-
-1. **Connect your GitHub repository** to Render
-2. **Create a new Web Service**
-3. **Configure**:
-   - Build Command: `pip install -r requirements.txt`
-   - Start Command: `gunicorn wsgi:app`
-4. **Set environment variables**:
-   - `SECRET_KEY`: Your secret key
-
-### Option 4: DigitalOcean App Platform
-
-1. **Connect your GitHub repository** to DigitalOcean
-2. **Create a new app**
-3. **Configure**:
-   - Source: Your repository
-   - Build Command: `pip install -r requirements.txt`
-   - Run Command: `gunicorn wsgi:app`
-4. **Set environment variables**
-
-### Option 5: VPS (Ubuntu/Debian)
-
-1. **SSH into your VPS**:
-   ```bash
-   ssh user@your-server-ip
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   sudo apt update
-   sudo apt install python3 python3-pip nginx libreoffice
-   ```
-
-3. **Clone and setup**:
-   ```bash
-   git clone <your-repo-url>
-   cd wordToPdf
-   pip3 install -r requirements.txt
-   ```
-
-4. **Create systemd service**:
-   ```bash
-   sudo nano /etc/systemd/system/wordtopdf.service
-   ```
-
-   Add this content:
-   ```ini
-   [Unit]
-   Description=Word to PDF Converter
-   After=network.target
-
-   [Service]
-   User=www-data
-   WorkingDirectory=/path/to/your/wordToPdf
-   Environment="PATH=/path/to/your/wordToPdf/venv/bin"
-   ExecStart=/path/to/your/wordToPdf/venv/bin/gunicorn wsgi:app
-   Restart=always
-
-   [Install]
-   WantedBy=multi-user.target
-   ```
-
-5. **Start the service**:
-   ```bash
-   sudo systemctl start wordtopdf
-   sudo systemctl enable wordtopdf
-   ```
-
-6. **Configure Nginx** (optional for domain):
-   ```bash
-   sudo nano /etc/nginx/sites-available/wordtopdf
-   ```
-
-   Add this content:
-   ```nginx
-   server {
-       listen 80;
-       server_name your-domain.com;
-
-       location / {
-           proxy_pass http://127.0.0.1:8000;
-           proxy_set_header Host $host;
-           proxy_set_header X-Real-IP $remote_addr;
-       }
-   }
-   ```
-
-   Enable the site:
-   ```bash
-   sudo ln -s /etc/nginx/sites-available/wordtopdf /etc/nginx/sites-enabled/
-   sudo nginx -t
-   sudo systemctl reload nginx
-   ```
-
-## Environment Variables
-
-- `SECRET_KEY`: Flask secret key (required for production)
-- `FLASK_ENV`: Set to `production` for production deployment
-
-## File Structure
+## 📁 Project Structure
 
 ```
 wordToPdf/
 ├── app/
-│   ├── __init__.py          # Flask app factory
-│   ├── routes.py            # Main routes
-│   ├── static/              # Static files (CSS, JS, uploads, downloads)
-│   ├── templates/           # HTML templates
-│   └── utils/               # Utility functions
-├── samples/                 # Sample files
-├── requirements.txt         # Python dependencies
-├── wsgi.py                 # WSGI entry point
-├── Procfile               # Heroku configuration
-├── runtime.txt            # Python version
-└── README.md              # This file
+│   ├── __init__.py              # Flask app initialization
+│   ├── routes.py                # Main application routes
+│   ├── templates/
+│   │   └── index.html          # Enhanced UI with accessibility
+│   ├── static/                 # Static files (CSS, JS, uploads)
+│   └── utils/
+│       ├── file_security.py    # File validation and security
+│       ├── performance_monitor.py # Performance tracking
+│       ├── config_manager.py   # Configuration management
+│       ├── word_processor.py   # Word document processing
+│       ├── pdf_generator.py    # PDF generation utilities
+│       ├── validators.py       # File validation utilities
+│       ├── error_handler.py    # Error handling utilities
+│       └── conversion_manager.py # Conversion orchestration
+├── samples/                    # Sample files for testing
+├── logs/                       # Application logs
+├── requirements.txt            # Python dependencies
+├── run.py                     # Application entry point
+└── README.md                  # This file
 ```
 
-## Usage
+## ⚙️ Configuration
 
-1. **Upload Files**: Drag and drop or click to select Word documents
-2. **Convert**: Click "Convert to PDF" button
-3. **Download**: Single files download as PDF, multiple files as ZIP
+### Environment Variables
+```bash
+# Application settings
+SECRET_KEY=your-secret-key-here
+DEBUG=false
 
-## Limitations
+# File upload settings
+MAX_FILE_SIZE=104857600  # 100MB in bytes
+MAX_FILES_PER_REQUEST=100
+CONVERSION_TIMEOUT=300   # 5 minutes
 
-- Maximum 100 files per upload
-- Maximum 100MB total upload size
-- Requires LibreOffice for conversion
-- Files are temporarily stored and cleaned up automatically
+# Performance settings
+ENABLE_PERFORMANCE_MONITORING=true
+BATCH_SIZE=10
 
-## Troubleshooting
+# Feature flags
+ENABLE_BATCH_PROCESSING=true
+ENABLE_EXCEL_TO_PDF=true
+ENABLE_PROGRESS_TRACKING=true
+```
+
+### Configuration File
+Create a `config.json` file in the root directory:
+```json
+{
+  "MAX_FILE_SIZE": 104857600,
+  "ENABLE_PERFORMANCE_MONITORING": true,
+  "LIBREOFFICE_PATH": "/usr/bin/soffice"
+}
+```
+
+## 🔧 Advanced Features
+
+### Performance Monitoring
+The application includes comprehensive performance monitoring:
+- Conversion time tracking
+- Memory usage monitoring
+- System resource validation
+- Performance metrics collection
+
+### Security Features
+- File type validation using MIME signatures
+- Path traversal protection
+- Secure temporary file handling
+- Input sanitization and validation
+
+### Error Handling
+- Comprehensive error messages
+- Graceful degradation
+- User-friendly error reporting
+- Automatic cleanup on errors
+
+### Accessibility
+- Full keyboard navigation
+- Screen reader support
+- ARIA labels and descriptions
+- High contrast mode support
+
+## 📊 Usage Examples
+
+### Single File Conversion
+1. Upload a Word document (.docx or .doc)
+2. Click "Convert to PDF"
+3. Download the converted PDF
+
+### Batch Processing
+1. Upload multiple Word files
+2. View file list with statistics
+3. Click "Convert to PDF"
+4. Download ZIP file containing all PDFs
+
+### Excel to PDF Processing
+1. Upload an Excel file (.xlsx)
+2. The system will generate a PDF for each row
+3. Download ZIP file with all generated PDFs
+
+## 🐛 Troubleshooting
 
 ### Common Issues
 
-1. **LibreOffice not found**: Ensure LibreOffice is installed and in PATH
-2. **Permission errors**: Check file permissions on upload/download folders
-3. **Memory issues**: Reduce batch size for large files
+**LibreOffice not found**
+- Ensure LibreOffice is installed and accessible
+- Check the path in configuration
+- Verify installation on your platform
+
+**File upload errors**
+- Check file size limits
+- Verify file type is supported
+- Ensure sufficient disk space
+
+**Conversion timeouts**
+- Increase `CONVERSION_TIMEOUT` in configuration
+- Check system resources
+- Reduce batch size for large files
+
+**Memory errors**
+- Increase available memory
+- Reduce batch size
+- Close other applications
 
 ### Logs
+Check the `logs/wordtopdf.log` file for detailed error information and performance metrics.
 
-- **Heroku**: `heroku logs --tail`
-- **Railway**: Check logs in dashboard
-- **VPS**: `sudo journalctl -u wordtopdf -f`
+## 🔒 Security Considerations
 
-## Contributing
+- All uploaded files are validated for type and content
+- Temporary files are automatically cleaned up
+- File paths are sanitized to prevent traversal attacks
+- Secure file permissions are enforced
+- Input validation prevents malicious uploads
+
+## 📈 Performance Tips
+
+- Use SSD storage for better I/O performance
+- Ensure adequate RAM (2GB+ recommended)
+- Configure appropriate batch sizes for your system
+- Monitor system resources during conversion
+- Use network storage for large file processing
+
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Submit a pull request
+4. Add tests if applicable
+5. Submit a pull request
 
-## License
+## 📄 License
 
-This project is licensed under the MIT License. 
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🆘 Support
+
+For issues and questions:
+1. Check the troubleshooting section
+2. Review the logs for error details
+3. Open an issue with detailed information
+4. Include system specifications and error messages
+
+---
+
+**Built with ❤️ using Flask, Python, and modern web technologies** 
