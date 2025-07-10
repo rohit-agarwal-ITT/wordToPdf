@@ -13,6 +13,7 @@ import shutil
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import platform
+from app.utils.error_handler import ErrorHandler
 
 main = Blueprint('main', __name__)
 
@@ -116,7 +117,7 @@ def upload_file():
             try:
                 df = pd.read_excel(excel_path)
             except Exception as e:
-                return jsonify({'error': f'Failed to read Excel file. Please check your file format. Details: {str(e)}'}), 400
+                return jsonify({'error': f'Failed to read Excel file. Please check your file format.'}), 400
             if df is None or df.empty:
                 return jsonify({'error': 'The uploaded Excel file is empty or invalid. Please provide a valid file with data.'}), 400
             total_rows = len(df)
@@ -145,12 +146,25 @@ def upload_file():
             else:
                 soffice_path = 'soffice'
             try:
+                # Validate all file paths before passing to subprocess
+                validated_files = []
+                for docx_file in docx_files:
+                    if os.path.exists(docx_file) and os.path.isfile(docx_file):
+                        # Ensure file is within temp directory
+                        real_temp_path = os.path.realpath(temp_dir)
+                        real_file_path = os.path.realpath(docx_file)
+                        if real_file_path.startswith(real_temp_path):
+                            validated_files.append(docx_file)
+                
+                if not validated_files:
+                    raise Exception("No valid files found for conversion")
+                
                 subprocess.run([
                     soffice_path, '--headless', '--convert-to', 'pdf', '--outdir', output_dir
-                ] + docx_files, check=True)
+                ] + validated_files, check=True)
             except Exception as e:
                 conversion_progress['status'] = 'error'
-                conversion_progress['error'] = f'Failed to convert Word documents to PDF. Please ensure LibreOffice is installed. Details: {e}'
+                conversion_progress['error'] = f'Failed to convert Word documents to PDF. Please ensure LibreOffice is installed.'
                 shutil.rmtree(temp_dir)
                 shutil.rmtree(output_dir)
                 return jsonify({'error': conversion_progress['error']}), 500
@@ -188,7 +202,7 @@ def upload_file():
             )
         except Exception as e:
             conversion_progress['status'] = 'error'
-            conversion_progress['error'] = f'An unexpected error occurred while processing your Excel file. Details: {e}'
+            conversion_progress['error'] = f'An unexpected error occurred while processing your Excel file. Please try again.'
             shutil.rmtree(temp_dir)
             shutil.rmtree(output_dir)
             return jsonify({'error': conversion_progress['error']}), 500
@@ -278,25 +292,41 @@ def upload_file():
             else:
                 soffice_path = 'soffice'
             try:
+                # Validate all file paths before passing to subprocess
+                validated_files = []
+                for docx_file in docx_files:
+                    if os.path.exists(docx_file) and os.path.isfile(docx_file):
+                        # Ensure file is within temp directory
+                        real_temp_path = os.path.realpath(temp_dir)
+                        real_file_path = os.path.realpath(docx_file)
+                        if real_file_path.startswith(real_temp_path):
+                            validated_files.append(docx_file)
+                
+                if not validated_files:
+                    raise Exception("No valid files found for conversion")
+                
                 subprocess.run([
                     soffice_path, '--headless', '--convert-to', 'pdf', '--outdir', output_dir
-                ] + docx_files, check=True)
+                ] + validated_files, check=True)
             except Exception as e:
                 conversion_progress['status'] = 'error'
-                conversion_progress['error'] = f'Failed to convert files to PDF. Please ensure LibreOffice is installed. Details: {e}'
+                conversion_progress['error'] = f'Failed to convert files to PDF. Please ensure LibreOffice is installed.'
                 shutil.rmtree(temp_dir)
                 shutil.rmtree(output_dir)
                 return jsonify({'error': conversion_progress['error']}), 500
             
             update_progress(total_files, total_files, 'Collecting converted PDFs...')
             
-            # Collect PDFs and rename for zipping
-            for docx_file in docx_files:
+            # Collect PDFs and rename for zipping, updating progress as each PDF is found (Excel case)
+            pdfs_found = 0
+            for idx, docx_file in enumerate(docx_files):
                 base = os.path.splitext(os.path.basename(docx_file))[0]
                 pdf_name = f"{base}-Appointment_letter.pdf"
                 pdf_path = os.path.join(output_dir, base + '.pdf')
                 if os.path.exists(pdf_path):
                     pdf_files.append((pdf_path, pdf_name))
+                    pdfs_found += 1
+                    update_progress(pdfs_found, total_files, f'Converted {pdfs_found} of {total_files} files to PDF...')
                 else:
                     errors.append(f'PDF not found for {base}')
             
@@ -307,7 +337,9 @@ def upload_file():
                 shutil.rmtree(output_dir)
                 return jsonify({'error': conversion_progress['error']}), 500
             
-            update_progress(total_files, total_files, 'Creating ZIP file. Almost done!')
+            # After all PDFs are collected and before sending the response (Excel case)
+            conversion_progress['status'] = 'completed'
+            update_progress(total_files, total_files, 'Conversion complete! Your files are ready for download.')
             
             # Zip all PDFs
             zip_buffer = io.BytesIO()
@@ -320,9 +352,6 @@ def upload_file():
             shutil.rmtree(output_dir)
             zip_buffer.seek(0)
             
-            conversion_progress['status'] = 'completed'
-            update_progress(total_files, total_files, 'Conversion complete! Your files are ready for download.')
-            
             return send_file(
                 zip_buffer,
                 as_attachment=True,
@@ -331,7 +360,7 @@ def upload_file():
             )
         except Exception as e:
             conversion_progress['status'] = 'error'
-            conversion_progress['error'] = f'An unexpected error occurred while processing your files. Details: {e}'
+            conversion_progress['error'] = f'An unexpected error occurred while processing your files. Please try again.'
             shutil.rmtree(temp_dir)
             shutil.rmtree(output_dir)
             return jsonify({'error': conversion_progress['error']}), 500
@@ -339,7 +368,54 @@ def upload_file():
 @main.route('/download/<filename>')
 def download_file(filename):
     try:
-        file_path = os.path.join(current_app.config['DOWNLOAD_FOLDER'], filename)
+        # Validate filename to prevent path traversal
+        if not filename or '..' in filename or '/' in filename or '\\' in filename:
+            return jsonify({'error': 'Invalid filename'}), 400
+        
+        # Sanitize filename
+        safe_filename = secure_filename(filename)
+        if not safe_filename:
+            return jsonify({'error': 'Invalid filename'}), 400
+        
+        file_path = os.path.join(current_app.config['DOWNLOAD_FOLDER'], safe_filename)
+        
+        # Additional path validation
+        real_download_path = os.path.realpath(current_app.config['DOWNLOAD_FOLDER'])
+        real_file_path = os.path.realpath(file_path)
+        
+        if not real_file_path.startswith(real_download_path):
+            return jsonify({'error': 'Access denied'}), 403
+        
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'File not found'}), 404
+        
         return send_file(file_path, as_attachment=True)
-    except FileNotFoundError:
-        return jsonify({'error': 'File not found'}), 404 
+    except Exception as e:
+        return jsonify({'error': 'File access error'}), 500 
+
+def register_error_handlers(app):
+    """Register error handlers with the Flask app"""
+    
+    @app.errorhandler(413)
+    def too_large(e):
+        """Handle file too large error"""
+        return ErrorHandler.create_error_response(
+            Exception("File too large"), 
+            context='upload'
+        )
+
+    @app.errorhandler(500)
+    def internal_error(e):
+        """Handle internal server errors"""
+        return ErrorHandler.create_error_response(
+            Exception("Internal server error"), 
+            context='system'
+        )
+
+    @app.errorhandler(404)
+    def not_found(e):
+        """Handle 404 errors"""
+        return ErrorHandler.create_error_response(
+            Exception("Page not found"), 
+            context='system'
+        ) 
