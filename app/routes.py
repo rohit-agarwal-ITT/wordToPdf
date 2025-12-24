@@ -14,6 +14,7 @@ import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import platform
 from app.utils.error_handler import ErrorHandler
+from datetime import datetime
 
 main = Blueprint('main', __name__)
 
@@ -47,6 +48,69 @@ def update_progress(current, total, message):
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def format_date_field(value, field_name):
+    """
+    Format date fields (Date of Joining, Effective Date) to DD-MonthName-YYYY format.
+    Handles input formats: '2024-07-01' (ISO) or '6/30/2025' (US format).
+    
+    Args:
+        value: The date value from Excel (can be string or datetime object)
+        field_name: The name of the field/column
+    
+    Returns:
+        Formatted date string like '05-August-2025' or original value if not a date field or parsing fails
+    """
+    # Only format specific date fields
+    date_fields = ['Date of Joining', 'Effective Date']
+    if field_name not in date_fields:
+        return str(value)
+    
+    # If value is already a datetime object (pandas sometimes reads dates as datetime)
+    if isinstance(value, pd.Timestamp):
+        try:
+            # Check for NaT (Not a Time) - pandas null timestamp
+            if pd.isna(value):
+                return str(value)
+            return value.strftime('%d-%B-%Y')
+        except:
+            return str(value)
+    
+    if isinstance(value, datetime):
+        try:
+            return value.strftime('%d-%B-%Y')
+        except:
+            return str(value)
+    
+    # Convert to string for parsing
+    date_str = str(value).strip()
+    if not date_str or date_str.lower() in ['nan', 'none', '']:
+        return str(value)
+    
+    # Try parsing different date formats
+    date_formats = [
+        '%Y-%m-%d',      # 2024-07-01
+        '%m/%d/%Y',      # 6/30/2025
+        '%m-%d-%Y',      # 6-30-2025
+        '%d/%m/%Y',      # 01/07/2024 (alternative)
+        '%d-%m-%Y',      # 01-07-2024 (alternative)
+        '%Y/%m/%d',      # 2024/07/01
+    ]
+    
+    parsed_date = None
+    for fmt in date_formats:
+        try:
+            parsed_date = datetime.strptime(date_str, fmt)
+            break
+        except ValueError:
+            continue
+    
+    if parsed_date:
+        # Format as DD-MonthName-YYYY (e.g., 05-August-2025)
+        return parsed_date.strftime('%d-%B-%Y')
+    
+    # If parsing failed, return original value
+    return str(value)
 
 def convert_single_file(file_info):
     """Convert a single file using LibreOffice - optimized for parallel processing"""
@@ -125,7 +189,14 @@ def upload_file():
             
             def generate_docx(row_tuple):
                 i, row = row_tuple
-                data = {str(col): str(row[col]) for col in df.columns}
+                # Process data with date formatting for specific fields
+                data = {}
+                for col in df.columns:
+                    col_str = str(col)
+                    value = row[col]
+                    # Format date fields appropriately
+                    formatted_value = format_date_field(value, col_str)
+                    data[col_str] = formatted_value
                 docx_name = f"{data.get('Name', 'Candidate')}_{i+1}.docx"
                 docx_path = os.path.join(temp_dir, docx_name)
                 wp = WordProcessor()  # Create a new instance per row/thread

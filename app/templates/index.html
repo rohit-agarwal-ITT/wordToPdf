@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Word to PDF Converter</title>
+    <title>Appointment Letter Generator - In Time Tec</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         * {
@@ -14,7 +14,7 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #FFD700 0%, #FF8C00 100%);
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -31,6 +31,25 @@
             width: 100%;
         }
 
+        .company-logo {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+            font-weight: 700;
+            color: #333;
+            letter-spacing: 1px;
+        }
+        
+        .company-logo .dot-yellow {
+            color: #FFD700;
+            font-size: 1.2em;
+        }
+        
+        .company-logo .dot-orange {
+            color: #FF8C00;
+            font-size: 1.2em;
+        }
+
         .header {
             text-align: center;
             margin-bottom: 40px;
@@ -38,7 +57,7 @@
 
         .header h1 {
             color: #333;
-            font-size: 2.5em;
+            font-size: 2.2em;
             margin-bottom: 10px;
             font-weight: 700;
         }
@@ -61,24 +80,24 @@
         }
 
         .upload-area:hover {
-            border-color: #667eea;
-            background: #f0f4ff;
+            border-color: #FF8C00;
+            background: #fff8e1;
         }
 
         .upload-area.dragover {
-            border-color: #667eea;
-            background: #e8f2ff;
+            border-color: #FF8C00;
+            background: #ffe0b2;
             transform: scale(1.02);
         }
 
         .upload-area:focus {
-            outline: 2px solid #667eea;
+            outline: 2px solid #FF8C00;
             outline-offset: 2px;
         }
 
         .upload-icon {
             font-size: 4em;
-            color: #667eea;
+            color: #FF8C00;
             margin-bottom: 20px;
         }
 
@@ -94,28 +113,28 @@
         }
 
         .upload-limit {
-            color: #667eea;
+            color: #FF8C00;
             font-size: 0.9em;
             margin-top: 12px;
             padding: 8px 16px;
-            background: linear-gradient(135deg, #f0f4ff 0%, #e8f2ff 100%);
+            background: linear-gradient(135deg, #fff8e1 0%, #ffe0b2 100%);
             border-radius: 20px;
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            border: 1px solid #d1e7ff;
+            border: 1px solid #ffcc80;
             font-weight: 500;
-            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+            box-shadow: 0 2px 8px rgba(255, 140, 0, 0.2);
             transition: all 0.3s ease;
         }
 
         .upload-limit:hover {
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+            box-shadow: 0 4px 12px rgba(255, 140, 0, 0.3);
         }
 
         .upload-limit i {
-            color: #764ba2;
+            color: #FFD700;
             font-size: 1em;
         }
 
@@ -124,7 +143,7 @@
         }
 
         .btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #FFD700 0%, #FF8C00 100%);
             color: white;
             border: none;
             padding: 15px 30px;
@@ -134,11 +153,13 @@
             transition: all 0.3s ease;
             font-weight: 600;
             margin: 10px;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
         }
 
         .btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 10px 20px rgba(255, 140, 0, 0.4);
+            background: linear-gradient(135deg, #FF8C00 0%, #FFD700 100%);
         }
 
         .btn:disabled {
@@ -149,7 +170,7 @@
         }
 
         .btn:focus {
-            outline: 2px solid #667eea;
+            outline: 2px solid #FF8C00;
             outline-offset: 2px;
         }
 
@@ -162,7 +183,7 @@
             border-radius: 10px;
             padding: 20px;
             margin-bottom: 15px;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #FF8C00;
         }
 
         .result-item.success {
@@ -253,7 +274,7 @@
 
         .file-icon {
             font-size: 1.5em;
-            color: #667eea;
+            color: #FF8C00;
             margin-right: 15px;
         }
 
@@ -404,7 +425,7 @@
         #customModal .modal-title {
             font-size: 1.3em;
             font-weight: 600;
-            color: #764ba2;
+            color: #FF8C00;
             margin-bottom: 12px;
         }
         #customModal .modal-message {
@@ -417,7 +438,7 @@
             word-break: break-word;
         }
         #customModal .modal-close {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #FFD700 0%, #FF8C00 100%);
             color: #fff;
             border: none;
             border-radius: 22px;
@@ -427,9 +448,10 @@
             cursor: pointer;
             margin-top: 8px;
             transition: background 0.2s;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
         }
         #customModal .modal-close:hover {
-            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+            background: linear-gradient(135deg, #FF8C00 0%, #FFD700 100%);
         }
         #loaderOverlay {
             position: fixed;
@@ -449,8 +471,8 @@
             width: 100vw;
         }
         .loader-spinner {
-            border: 6px solid #f3f3f3;
-            border-top: 6px solid #764ba2;
+            border: 6px solid #fff8e1;
+            border-top: 6px solid #FF8C00;
             border-radius: 50%;
             width: 60px;
             height: 60px;
@@ -463,18 +485,18 @@
         }
         .loader-text {
             font-size: 1.2em;
-            color: #764ba2;
+            color: #FF8C00;
             font-weight: 600;
             text-align: center;
         }
         .upload-hint {
-            background: #f5f7ff;
-            border: 1.5px solid #e0e7ff;
+            background: #fff8e1;
+            border: 1.5px solid #ffcc80;
             border-radius: 12px;
             padding: 18px 22px 14px 22px;
             margin: 24px 0 18px 0;
             font-size: 0.95em; /* match upload subtext font size */
-            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07);
+            box-shadow: 0 2px 8px rgba(255, 140, 0, 0.1);
             color: #222;
             width: 100%;
             max-width: 100%;
@@ -486,7 +508,7 @@
             }
         }
         .upload-hint h3 {
-            color: #4f46e5;
+            color: #FF8C00;
             margin-bottom: 10px;
             font-size: 1em; /* match subheading size */
             font-weight: 700;
@@ -494,7 +516,7 @@
             align-items: center;
         }
         .upload-hint h3 i {
-            color: #fbbf24;
+            color: #FFD700;
             margin-right: 8px;
             font-size: 1.2em;
         }
@@ -509,7 +531,7 @@
             margin-bottom: 7px;
         }
         .upload-hint li strong {
-            color: #4f46e5;
+            color: #FF8C00;
             font-weight: 600;
         }
     </style>
@@ -518,9 +540,12 @@
     <div class="accessibility-info" id="accessibilityInfo" aria-live="polite"></div>
     
     <div class="container">
+        <div class="company-logo">
+            <span class="dot-yellow">●</span>In Time Tec<span class="dot-orange">●</span>
+        </div>
         <div class="header">
-            <h1><i class="fas fa-file-word"></i> Word & Excel to PDF Converter</h1>
-            <p>Convert your Word or Excel files to PDF format easily and securely.<br>Upload an Excel sheet to generate personalized PDFs for each row automatically!</p>
+            <h1><i class="fas fa-file-contract"></i> Appointment Letter Generator</h1>
+            <p>Generate personalized appointment letters from Excel data easily and securely.<br>Upload an Excel sheet to generate appointment letters for each row automatically!</p>
         </div>
 
 
@@ -530,7 +555,7 @@
                 <i class="fas fa-cloud-upload-alt"></i>
             </div>
             <div class="upload-text">Drag & Drop your Word or Excel files here</div>
-            <div class="upload-subtext">or click to browse files<br><span style="font-size:0.95em;color:#764ba2;">• Upload <b>.docx</b>, <b>.doc</b>, or <b>.xlsx</b> files<br>• Excel upload will generate a PDF for each row (takes longer)</span></div>
+            <div class="upload-subtext">or click to browse files<br><span style="font-size:0.95em;color:#FF8C00;">• Upload <b>.docx</b>, <b>.doc</b>, or <b>.xlsx</b> files<br>• Excel upload will generate a PDF for each row (takes longer)</span></div>
             <div class="upload-limit">
                 <i class="fas fa-rocket"></i>
                 <span>Up to 100 files for lightning-fast conversion!</span>
