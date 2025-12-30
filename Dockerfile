@@ -1,15 +1,21 @@
- # Use official Python image
-FROM python:3.11-slim
+ # Use official Python image (full instead of slim for better LibreOffice support)
+FROM python:3.11
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_APP=wsgi:app
 
-# Install LibreOffice and other system dependencies
+# Install LibreOffice and dependencies
 RUN apt-get update && \
-    apt-get install -y libreoffice libreoffice-writer libreoffice-calc libreoffice-impress && \
-    apt-get clean && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    --no-install-recommends \
+    libreoffice \
+    libreoffice-writer \
+    libreoffice-calc \
+    libreoffice-impress \
+    fonts-liberation \
+    && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Set working directory

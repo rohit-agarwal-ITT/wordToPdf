@@ -11,6 +11,9 @@ def create_app():
     # Enhanced Configuration
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-here-change-in-production')
     app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
+    app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Prevent file caching
+    # Increase timeout for large file operations (if using a WSGI server like gunicorn, set timeout there)
+    app.config['PERMANENT_SESSION_LIFETIME'] = 1800  # 30 minutes
     
     # Handle static folder safely
     static_folder = app.static_folder or os.path.join(app.root_path, 'static')

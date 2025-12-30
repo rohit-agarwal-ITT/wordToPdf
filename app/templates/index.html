@@ -6,136 +6,312 @@
     <title>Appointment Letter Generator - In Time Tec</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
 
+        html {
+            overflow-x: hidden;
+            width: 100%;
+        }
+
+        :root {
+            --primary-gradient: linear-gradient(135deg, #FFD700 0%, #FF8C00 100%);
+            --glass-bg: rgba(255, 255, 255, 0.25);
+            --glass-border: rgba(255, 255, 255, 0.18);
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+            --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.12);
+            --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.16);
+            --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-base: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-slow: 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
             background: linear-gradient(135deg, #FFD700 0%, #FF8C00 100%);
+            background-attachment: fixed;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
             padding: 20px;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            overflow-x: hidden;
+            width: 100%;
         }
 
         .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-            padding: 40px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            box-shadow: var(--shadow-lg), 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+            padding: 48px;
             max-width: 800px;
             width: 100%;
+            animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            overflow-x: hidden;
+            box-sizing: border-box;
+        }
+
+        .container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 140, 0, 0.3), transparent);
+            animation: shimmer 3s infinite;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes shimmer {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.8; }
         }
 
         .company-logo {
             text-align: center;
-            margin-bottom: 20px;
-            font-size: 1.8em;
-            font-weight: 700;
-            color: #333;
-            letter-spacing: 1px;
+            margin-bottom: 32px;
+            animation: fadeIn 0.8s ease-out;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
         
-        .company-logo .dot-yellow {
-            color: #FFD700;
-            font-size: 1.2em;
+        .company-logo img {
+            max-width: 280px;
+            height: auto;
+            width: 100%;
+            filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
+            transition: all var(--transition-base);
         }
-        
-        .company-logo .dot-orange {
-            color: #FF8C00;
-            font-size: 1.2em;
+
+        .company-logo img:hover {
+            transform: scale(1.02);
+            filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.2));
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
         }
 
         .header {
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 48px;
+            animation: fadeIn 1s ease-out 0.2s both;
         }
 
         .header h1 {
-            color: #333;
-            font-size: 2.2em;
-            margin-bottom: 10px;
+            color: #1a1a1a;
+            font-size: 2.5em;
+            margin-bottom: 16px;
             font-weight: 700;
+            letter-spacing: -0.5px;
+            line-height: 1.2;
+            background: linear-gradient(135deg, #1a1a1a 0%, #333 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header h1 i {
+            color: #FF8C00;
+            margin-right: 12px;
+            font-size: 0.9em;
+            animation: bounce 2s ease-in-out infinite;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
         }
 
         .header p {
-            color: #666;
-            font-size: 1.1em;
+            color: #4a5568;
+            font-size: 1.125em;
+            line-height: 1.7;
+            letter-spacing: 0.2px;
+            max-width: 600px;
+            margin: 0 auto;
+            font-weight: 400;
         }
 
         .upload-area {
-            border: 3px dashed #ddd;
-            border-radius: 15px;
-            padding: 60px 20px;
+            border: 2.5px dashed rgba(255, 140, 0, 0.3);
+            border-radius: 20px;
+            padding: 64px 24px;
             text-align: center;
-            margin-bottom: 30px;
-            transition: all 0.3s ease;
+            margin-bottom: 32px;
+            transition: all var(--transition-base);
             cursor: pointer;
-            background: #fafafa;
+            background: rgba(255, 248, 225, 0.4);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
             position: relative;
+            overflow: hidden;
+            overflow-x: hidden;
+            box-shadow: var(--shadow-sm);
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .upload-area::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255, 215, 0, 0.1) 0%, transparent 70%);
+            opacity: 0;
+            transition: opacity var(--transition-base);
+            pointer-events: none;
+            z-index: 0;
         }
 
         .upload-area:hover {
             border-color: #FF8C00;
-            background: #fff8e1;
+            background: rgba(255, 248, 225, 0.6);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .upload-area:hover::before {
+            opacity: 1;
         }
 
         .upload-area.dragover {
             border-color: #FF8C00;
-            background: #ffe0b2;
-            transform: scale(1.02);
+            background: rgba(255, 224, 178, 0.5);
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-lg);
+            animation: pulseBorder 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulseBorder {
+            0%, 100% { border-color: #FF8C00; }
+            50% { border-color: #FFD700; }
+        }
+
+        .upload-area:active {
+            transform: scale(0.98);
         }
 
         .upload-area:focus {
-            outline: 2px solid #FF8C00;
-            outline-offset: 2px;
+            outline: 3px solid rgba(255, 140, 0, 0.4);
+            outline-offset: 4px;
+            border-radius: 20px;
         }
 
         .upload-icon {
-            font-size: 4em;
+            font-size: 4.5em;
             color: #FF8C00;
-            margin-bottom: 20px;
+            margin-bottom: 24px;
+            display: inline-block;
+            transition: all var(--transition-base);
+            filter: drop-shadow(0 4px 8px rgba(255, 140, 0, 0.2));
+        }
+
+        .upload-area:hover .upload-icon {
+            transform: scale(1.1) rotate(5deg);
+            color: #FFD700;
         }
 
         .upload-text {
-            font-size: 1.2em;
-            color: #333;
-            margin-bottom: 10px;
+            font-size: 1.25em;
+            color: #1a1a1a;
+            margin-bottom: 12px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            line-height: 1.5;
         }
 
         .upload-subtext {
-            color: #666;
-            font-size: 0.9em;
+            color: #4a5568;
+            font-size: 0.95em;
+            line-height: 1.6;
+            letter-spacing: 0.1px;
         }
 
         .upload-limit {
             color: #FF8C00;
-            font-size: 0.9em;
-            margin-top: 12px;
-            padding: 8px 16px;
-            background: linear-gradient(135deg, #fff8e1 0%, #ffe0b2 100%);
-            border-radius: 20px;
+            font-size: 0.95em;
+            margin-top: 16px;
+            padding: 10px 20px;
+            background: rgba(255, 248, 225, 0.6);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 24px;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            border: 1px solid #ffcc80;
-            font-weight: 500;
-            box-shadow: 0 2px 8px rgba(255, 140, 0, 0.2);
-            transition: all 0.3s ease;
+            gap: 10px;
+            border: 1px solid rgba(255, 204, 128, 0.4);
+            font-weight: 600;
+            letter-spacing: 0.2px;
+            box-shadow: var(--shadow-sm);
+            transition: all var(--transition-base);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .upload-limit::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
         }
 
         .upload-limit:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(255, 140, 0, 0.3);
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: var(--shadow-md);
+            border-color: rgba(255, 140, 0, 0.6);
+        }
+
+        .upload-limit:hover::before {
+            left: 100%;
         }
 
         .upload-limit i {
             color: #FFD700;
-            font-size: 1em;
+            font-size: 1.1em;
+            animation: rocket 2s ease-in-out infinite;
+        }
+
+        @keyframes rocket {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-3px) rotate(-10deg); }
         }
 
         .file-input {
@@ -143,127 +319,673 @@
         }
 
         .btn {
-            background: linear-gradient(135deg, #FFD700 0%, #FF8C00 100%);
+            background: var(--primary-gradient);
             color: white;
             border: none;
-            padding: 15px 30px;
-            border-radius: 25px;
-            font-size: 1.1em;
+            padding: 16px 36px;
+            border-radius: 28px;
+            font-size: 1.125em;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all var(--transition-base);
             font-weight: 600;
-            margin: 10px;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+            margin: 12px;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+            letter-spacing: 0.3px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: var(--shadow-md);
+            font-family: 'Inter', sans-serif;
         }
 
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(255, 140, 0, 0.4);
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .btn:hover:not(:disabled) {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 12px 28px rgba(255, 140, 0, 0.4);
             background: linear-gradient(135deg, #FF8C00 0%, #FFD700 100%);
         }
 
+        .btn:hover:not(:disabled)::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        .btn:active:not(:disabled) {
+            transform: translateY(-1px) scale(0.98);
+            box-shadow: var(--shadow-sm);
+        }
+
         .btn:disabled {
-            background: #ccc;
+            background: linear-gradient(135deg, #cbd5e0 0%, #a0aec0 100%);
             cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
+            transform: none !important;
+            box-shadow: none !important;
+            opacity: 0.6;
+        }
+
+        .btn:disabled:hover {
+            transform: none !important;
+            box-shadow: none !important;
+            background: linear-gradient(135deg, #cbd5e0 0%, #a0aec0 100%) !important;
+        }
+
+        .btn:disabled:hover::before {
+            width: 0 !important;
+            height: 0 !important;
         }
 
         .btn:focus {
-            outline: 2px solid #FF8C00;
-            outline-offset: 2px;
+            outline: 3px solid rgba(255, 140, 0, 0.4);
+            outline-offset: 3px;
+            border-radius: 28px;
+        }
+
+        .btn span {
+            position: relative;
+            z-index: 1;
         }
 
         .results {
-            margin-top: 30px;
+            margin-top: 32px;
+            animation: fadeIn 0.6s ease-out;
         }
 
         .result-item {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 15px;
+            background: rgba(248, 249, 250, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 16px;
             border-left: 4px solid #FF8C00;
+            box-shadow: var(--shadow-sm);
+            transition: all var(--transition-base);
+            animation: slideInUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .result-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 4px;
+            background: var(--primary-gradient);
+            transition: width var(--transition-base);
+        }
+
+        .result-item:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
         }
 
         .result-item.success {
             border-left-color: #28a745;
         }
 
+        .result-item.success::before {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+        }
+
         .result-item.error {
             border-left-color: #dc3545;
+        }
+
+        .result-item.error::before {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
         }
 
         .result-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
         }
 
         .result-title {
             font-weight: 600;
-            color: #333;
+            color: #1a1a1a;
+            font-size: 1.1em;
+            letter-spacing: 0.2px;
+            line-height: 1.4;
         }
 
         .result-status {
-            padding: 5px 12px;
-            border-radius: 15px;
-            font-size: 0.8em;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.85em;
             font-weight: 600;
+            letter-spacing: 0.2px;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: var(--shadow-sm);
+            animation: fadeInScale 0.3s ease-out;
         }
 
         .result-status.success {
-            background: #d4edda;
+            background: rgba(212, 237, 218, 0.7);
             color: #155724;
         }
 
         .result-status.error {
-            background: #f8d7da;
+            background: rgba(248, 215, 218, 0.7);
             color: #721c24;
         }
 
         .download-btn {
-            background: #28a745;
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
             color: white;
             border: none;
-            padding: 8px 16px;
-            border-radius: 15px;
+            padding: 10px 20px;
+            border-radius: 20px;
             cursor: pointer;
-            font-size: 0.9em;
+            font-size: 0.95em;
             text-decoration: none;
             display: inline-block;
-            margin-top: 10px;
+            margin-top: 12px;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+            box-shadow: var(--shadow-sm);
+            transition: all var(--transition-base);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .download-btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            transform: translate(-50%, -50%);
+            transition: width 0.5s, height 0.5s;
         }
 
         .download-btn:hover {
-            background: #218838;
+            background: linear-gradient(135deg, #218838 0%, #28a745 100%);
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: var(--shadow-md);
+        }
+
+        .download-btn:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        .download-btn:active {
+            transform: translateY(0) scale(0.98);
         }
 
         .error-message {
             color: #dc3545;
+            font-size: 0.95em;
+            margin-top: 8px;
+            line-height: 1.6;
+            letter-spacing: 0.1px;
+            animation: shake 0.5s ease-out;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+            20%, 40%, 60%, 80% { transform: translateX(4px); }
+        }
+
+        /* Progress Dashboard */
+        .progress-dashboard {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 2px solid rgba(255, 140, 0, 0.3);
+            border-radius: 20px;
+            overflow-x: hidden;
+            width: 100%;
+            box-sizing: border-box;
+            padding: 28px;
+            margin: 24px 0;
+            box-shadow: var(--shadow-lg), 0 0 20px rgba(255, 140, 0, 0.2);
+            animation: slideInDown 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            z-index: 10;
+        }
+
+        /* Sticky progress dashboard when visible */
+        .progress-dashboard.active {
+            position: sticky;
+            top: 20px;
+            z-index: 100;
+        }
+
+        @keyframes slideInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .progress-title {
+            font-size: 1.3em;
+            font-weight: 700;
+            color: #1a1a1a;
+            letter-spacing: 0.2px;
+        }
+
+        .progress-stats {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .progress-stat {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 80px;
+        }
+
+        .progress-stat-value {
+            font-size: 1.5em;
+            font-weight: 700;
+            color: #FF8C00;
+            line-height: 1.2;
+        }
+
+        .progress-stat-label {
+            font-size: 0.85em;
+            color: #4a5568;
+            margin-top: 4px;
+            letter-spacing: 0.1px;
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 12px;
+            background: rgba(255, 140, 0, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 20px 0;
+            position: relative;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: var(--primary-gradient);
+            border-radius: 10px;
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .progress-message {
+            text-align: center;
+            color: #4a5568;
+            font-size: 1em;
+            margin-top: 16px;
+            font-weight: 500;
+            letter-spacing: 0.1px;
+            background: transparent !important;
+            border: none !important;
+            outline: none !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            -webkit-appearance: none !important;
+            -moz-appearance: none !important;
+            appearance: none !important;
+            line-height: 1.5;
+        }
+
+        /* Chrome-specific fixes for outline/border issues */
+        .progress-message:focus,
+        .progress-message:focus-visible,
+        .progress-message:focus-within,
+        .progress-message:active {
+            outline: none !important;
+            border: none !important;
+            box-shadow: none !important;
+            -webkit-tap-highlight-color: transparent !important;
+        }
+
+        /* Remove any Chrome autofill or input styling */
+        .progress-message::-webkit-autofill,
+        .progress-message::-webkit-autofill:hover,
+        .progress-message::-webkit-autofill:focus {
+            background: transparent !important;
+            border: none !important;
+            outline: none !important;
+            box-shadow: none !important;
+        }
+
+        /* Remove Chrome's default focus ring */
+        .progress-message *:focus {
+            outline: none !important;
+        }
+
+        /* Chrome webkit outline removal */
+        .progress-message {
+            -webkit-tap-highlight-color: transparent !important;
+            -webkit-focus-ring-color: transparent !important;
+        }
+
+        .progress-message .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 140, 0, 0.3);
+            border-top-color: #FF8C00;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+
+        .progress-message > span:not(.loading-spinner) {
+            display: inline;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .progress-message .loading-dots {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-left: 4px;
+        }
+
+        .progress-message .loading-dots span {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background-color: #FF8C00;
+            border-radius: 50%;
+            animation: pulse-dot 1.4s ease-in-out infinite;
+        }
+
+        .progress-message .loading-dots span:nth-child(1) {
+            animation-delay: 0s;
+        }
+
+        .progress-message .loading-dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .progress-message .loading-dots span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { 
+                opacity: 0.3;
+                transform: scale(0.8);
+            }
+            50% { 
+                opacity: 1;
+                transform: scale(1.2);
+            }
+        }
+
+        .progress-file-list {
+            margin-top: 24px;
+            max-height: 300px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .progress-file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            background: rgba(248, 249, 250, 0.6);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 140, 0, 0.1);
+            transition: all var(--transition-fast);
+            position: relative;
+        }
+
+        .progress-file-item::before {
+            content: '→';
+            position: absolute;
+            left: -20px;
+            color: #FF8C00;
+            font-weight: 600;
+            opacity: 0;
+            transition: all var(--transition-fast);
+        }
+
+        .progress-file-item:hover {
+            background: rgba(255, 248, 225, 0.4);
+            border-color: rgba(255, 140, 0, 0.3);
+            transform: translateX(4px);
+        }
+
+        .progress-file-item:hover::before {
+            opacity: 1;
+            left: -24px;
+        }
+
+        .progress-file-info {
+            display: flex;
+            align-items: center;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .progress-file-icon {
+            font-size: 1.2em;
+            color: #FF8C00;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+
+        .progress-file-name {
+            font-weight: 500;
+            color: #1a1a1a;
+            font-size: 0.95em;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            letter-spacing: 0.1px;
+        }
+
+        .progress-file-status {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+            margin-left: 12px;
+            flex-shrink: 0;
+        }
+
+        .progress-file-status.pending {
+            background: rgba(203, 213, 224, 0.5);
+            color: #4a5568;
+        }
+
+        .progress-file-status.processing {
+            background: rgba(255, 243, 205, 0.7);
+            color: #856404;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .progress-file-status.completed {
+            background: rgba(212, 237, 218, 0.7);
+            color: #155724;
+        }
+
+        .progress-file-status.error {
+            background: rgba(248, 215, 218, 0.7);
+            color: #721c24;
+        }
+
+        /* Enhanced Error Messages */
+        .error-details {
+            margin-top: 12px;
+            padding: 16px;
+            background: rgba(248, 215, 218, 0.3);
+            border-left: 4px solid #dc3545;
+            border-radius: 8px;
+        }
+
+        .error-suggestion {
+            margin-top: 12px;
+            padding: 12px;
+            background: rgba(255, 248, 225, 0.5);
+            border-left: 4px solid #FF8C00;
+            border-radius: 8px;
             font-size: 0.9em;
-            margin-top: 5px;
+        }
+
+        .error-suggestion-title {
+            font-weight: 600;
+            color: #FF8C00;
+            margin-bottom: 8px;
+        }
+
+        .error-suggestion ul {
+            margin: 8px 0 0 20px;
+            padding: 0;
+        }
+
+        .error-suggestion li {
+            margin-bottom: 6px;
+            color: #4a5568;
+            line-height: 1.5;
         }
 
         .file-list {
             margin-top: 20px;
+            width: 100%;
+            overflow-x: hidden;
+            box-sizing: border-box;
         }
 
         .file-item {
-            background: #f8f9fa;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 10px;
+            background: rgba(248, 249, 250, 0.6);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 140, 0, 0.1);
+            border-radius: 16px;
+            padding: 18px 20px;
+            margin-bottom: 12px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            overflow-x: hidden;
+            width: 100%;
+            box-sizing: border-box;
+            transition: all var(--transition-base);
+            box-shadow: var(--shadow-sm);
+            animation: slideInRight 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .file-item.disabled {
+            opacity: 0.6;
+            pointer-events: none;
+            cursor: not-allowed;
+        }
+
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .file-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 4px;
+            background: var(--primary-gradient);
+            transform: scaleY(0);
+            transition: transform var(--transition-base);
+            transform-origin: bottom;
         }
 
         .file-item:hover {
-            background: #e9ecef;
-            transform: translateX(5px);
+            background: rgba(255, 248, 225, 0.6);
+            border-color: rgba(255, 140, 0, 0.4);
+        }
+
+        .file-item:hover::before {
+            transform: scaleY(1);
         }
 
         .file-info {
@@ -273,9 +995,15 @@
         }
 
         .file-icon {
-            font-size: 1.5em;
+            font-size: 1.75em;
             color: #FF8C00;
-            margin-right: 15px;
+            margin-right: 18px;
+            transition: all var(--transition-base);
+            filter: drop-shadow(0 2px 4px rgba(255, 140, 0, 0.2));
+        }
+
+        .file-item:hover .file-icon {
+            color: #FF8C00;
         }
 
         .file-details {
@@ -284,69 +1012,162 @@
 
         .file-name {
             font-weight: 600;
-            color: #333;
-            margin-bottom: 4px;
+            color: #1a1a1a;
+            margin-bottom: 6px;
+            font-size: 1.05em;
+            letter-spacing: 0.1px;
+            line-height: 1.4;
         }
 
         .file-size {
-            color: #666;
+            color: #4a5568;
             font-size: 0.9em;
+            letter-spacing: 0.1px;
+            font-weight: 400;
         }
 
         .file-status {
-            font-size: 0.8em;
-            padding: 2px 8px;
-            border-radius: 10px;
+            font-size: 0.85em;
+            padding: 6px 14px;
+            border-radius: 20px;
             margin-right: 12px;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: var(--shadow-sm);
+            transition: all var(--transition-base);
+            animation: fadeInScale 0.3s ease-out;
+        }
+
+        @keyframes fadeInScale {
+            from {
+                opacity: 0;
+                transform: scale(0.8);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
         }
 
         .file-status.ready {
-            background: #d4edda;
+            background: rgba(212, 237, 218, 0.7);
             color: #155724;
         }
 
         .file-status.processing {
-            background: #fff3cd;
+            background: rgba(255, 243, 205, 0.7);
             color: #856404;
+            animation: pulse 2s ease-in-out infinite;
         }
 
         .file-status.error {
-            background: #f8d7da;
+            background: rgba(248, 215, 218, 0.7);
             color: #721c24;
         }
 
         .remove-file {
-            background: #dc3545;
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
             color: white;
             border: none;
-            padding: 5px 10px;
-            border-radius: 15px;
+            padding: 8px 14px;
+            border-radius: 20px;
             cursor: pointer;
-            font-size: 0.8em;
-            transition: all 0.3s ease;
-            margin-left: 4px;
+            font-size: 0.85em;
+            transition: all var(--transition-base);
+            margin-left: 8px;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+            box-shadow: var(--shadow-sm);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .remove-file::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            transform: translate(-50%, -50%);
+            transition: width 0.4s, height 0.4s;
         }
 
         .remove-file:hover {
-            background: #c82333;
-            transform: scale(1.1);
+            background: linear-gradient(135deg, #c82333 0%, #bd2130 100%);
+            transform: scale(1.1) translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .remove-file:hover::before {
+            width: 200px;
+            height: 200px;
+        }
+
+        .remove-file:active {
+            transform: scale(0.95);
         }
 
         .remove-file:focus {
-            outline: 2px solid #dc3545;
-            outline-offset: 2px;
+            outline: 3px solid rgba(220, 53, 69, 0.4);
+            outline-offset: 3px;
+            border-radius: 20px;
+        }
+
+        .remove-file:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        /* Disable interactions during conversion */
+        body.converting .upload-area {
+            pointer-events: none;
+            opacity: 0.6;
+            cursor: not-allowed;
+            filter: grayscale(0.3);
+        }
+
+        body.converting .file-item {
+            pointer-events: none;
+        }
+
+        body.converting .file-item .remove-file {
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        body.converting .btn:not(#convertBtn) {
+            pointer-events: none;
+            opacity: 0.6;
         }
 
         .file-preview {
-            margin-top: 10px;
-            padding: 10px;
-            background: #fff;
-            border-radius: 5px;
-            border: 1px solid #ddd;
-            font-size: 0.8em;
-            color: #666;
-            max-height: 100px;
+            margin-top: 12px;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 140, 0, 0.2);
+            font-size: 0.85em;
+            color: #4a5568;
+            max-height: 120px;
             overflow-y: auto;
+            line-height: 1.6;
+            letter-spacing: 0.1px;
+            box-shadow: var(--shadow-sm);
+            transition: all var(--transition-base);
+        }
+
+        .file-preview:hover {
+            background: rgba(255, 255, 255, 0.9);
+            border-color: rgba(255, 140, 0, 0.4);
         }
 
 
@@ -362,36 +1183,132 @@
 
         @media (max-width: 768px) {
             .container {
-                padding: 20px;
+                padding: 24px;
+                border-radius: 20px;
+            }
+
+            .company-logo {
+                margin-bottom: 24px;
+            }
+
+            .company-logo img {
+                max-width: 220px;
+            }
+
+            .header {
+                margin-bottom: 32px;
             }
 
             .header h1 {
                 font-size: 2em;
+                line-height: 1.3;
+            }
+
+            .header p {
+                font-size: 1em;
+                line-height: 1.6;
             }
 
             .upload-area {
-                padding: 40px 20px;
+                padding: 48px 20px;
+                border-radius: 16px;
             }
 
             .upload-icon {
-                font-size: 3em;
+                font-size: 3.5em;
+            }
+
+            .upload-text {
+                font-size: 1.1em;
             }
 
             .file-item {
                 flex-direction: column;
                 align-items: flex-start;
+                padding: 16px;
+                border-radius: 12px;
             }
 
             .file-info {
-                margin-bottom: 10px;
+                margin-bottom: 12px;
                 width: 100%;
+            }
+
+            .file-icon {
+                font-size: 1.5em;
+                margin-right: 12px;
             }
 
             .remove-file {
                 align-self: flex-end;
+                margin-top: 8px;
             }
 
+            .btn {
+                padding: 14px 28px;
+                font-size: 1em;
+                border-radius: 24px;
+            }
 
+            .upload-hint {
+                padding: 20px 24px 16px 24px;
+                border-radius: 12px;
+            }
+
+            #customModal .modal-content {
+                padding: 32px 24px 24px 24px;
+                border-radius: 20px;
+                min-width: 90vw;
+            }
+
+            #customModal .modal-title {
+                font-size: 1.3em;
+            }
+
+            #customModal .modal-message {
+                font-size: 1em;
+                max-width: 100%;
+            }
+
+            .progress-dashboard {
+                padding: 20px;
+                border-radius: 16px;
+            }
+
+            .progress-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .progress-title {
+                font-size: 1.1em;
+                margin-bottom: 16px;
+            }
+
+            .progress-stats {
+                width: 100%;
+                justify-content: space-around;
+            }
+
+            .progress-stat {
+                min-width: 60px;
+            }
+
+            .progress-stat-value {
+                font-size: 1.3em;
+            }
+
+            .progress-file-item {
+                flex-direction: column;
+                align-items: flex-start;
+                padding: 10px 12px;
+            }
+
+            .progress-file-status {
+                margin-left: 0;
+                margin-top: 8px;
+                align-self: flex-end;
+            }
         }
 
         #customModal {
@@ -401,67 +1318,124 @@
             align-items: center;
             justify-content: center;
             z-index: 9999;
+            animation: fadeIn 0.3s ease-out;
         }
         #customModal .modal-backdrop {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.4);
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            animation: fadeIn 0.3s ease-out;
         }
         #customModal .modal-content {
             position: relative;
-            background: #fff;
-            border-radius: 16px;
-            padding: 32px 24px 24px 24px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 24px;
+            padding: 40px 32px 32px 32px;
+            box-shadow: var(--shadow-lg), 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
             z-index: 2;
-            min-width: 260px;
-            min-height: 120px;
+            min-width: 280px;
+            min-height: 140px;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            font-size: 1.1em;
+            font-size: 1.125em;
+            animation: modalSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            max-width: 90vw;
         }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9) translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+
         #customModal .modal-title {
-            font-size: 1.3em;
-            font-weight: 600;
+            font-size: 1.5em;
+            font-weight: 700;
             color: #FF8C00;
-            margin-bottom: 12px;
+            margin-bottom: 16px;
+            letter-spacing: 0.3px;
+            line-height: 1.3;
         }
         #customModal .modal-message {
-            color: #444;
-            margin-bottom: 22px;
+            color: #4a5568;
+            margin-bottom: 28px;
             text-align: center;
-            font-size: 1em;
-            min-height: 32px;
-            max-width: 320px;
+            font-size: 1.05em;
+            min-height: 40px;
+            max-width: 360px;
             word-break: break-word;
+            line-height: 1.6;
+            letter-spacing: 0.1px;
         }
         #customModal .modal-close {
-            background: linear-gradient(135deg, #FFD700 0%, #FF8C00 100%);
+            background: var(--primary-gradient);
             color: #fff;
             border: none;
-            border-radius: 22px;
-            padding: 8px 32px;
-            font-size: 1em;
+            border-radius: 24px;
+            padding: 12px 40px;
+            font-size: 1.05em;
             font-weight: 600;
             cursor: pointer;
             margin-top: 8px;
-            transition: background 0.2s;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+            transition: all var(--transition-base);
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+            letter-spacing: 0.3px;
+            box-shadow: var(--shadow-md);
+            position: relative;
+            overflow: hidden;
         }
+
+        #customModal .modal-close::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.5s, height 0.5s;
+        }
+
         #customModal .modal-close:hover {
             background: linear-gradient(135deg, #FF8C00 0%, #FFD700 100%);
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: var(--shadow-lg);
+        }
+
+        #customModal .modal-close:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        #customModal .modal-close:active {
+            transform: translateY(0) scale(0.98);
         }
         #loaderOverlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(255,255,255,0.85);
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
             z-index: 9998;
             display: none;
             align-items: center;
             justify-content: center;
             flex-direction: column;
+            animation: fadeIn 0.3s ease-out;
         }
         
         /* Prevent scrolling when loader is active */
@@ -471,37 +1445,69 @@
             width: 100vw;
         }
         .loader-spinner {
-            border: 6px solid #fff8e1;
-            border-top: 6px solid #FF8C00;
+            border: 5px solid rgba(255, 248, 225, 0.3);
+            border-top: 5px solid #FF8C00;
+            border-right: 5px solid #FFD700;
             border-radius: 50%;
-            width: 60px;
-            height: 60px;
+            width: 64px;
+            height: 64px;
             animation: spin 1s linear infinite;
-            margin-bottom: 18px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 16px rgba(255, 140, 0, 0.2);
+            position: relative;
         }
+
+        .loader-spinner::after {
+            content: '';
+            position: absolute;
+            top: -5px;
+            left: -5px;
+            right: -5px;
+            bottom: -5px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            border-top-color: rgba(255, 140, 0, 0.3);
+            animation: spin 0.5s linear infinite reverse;
+        }
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
         .loader-text {
-            font-size: 1.2em;
+            font-size: 1.25em;
             color: #FF8C00;
             font-weight: 600;
             text-align: center;
+            letter-spacing: 0.3px;
+            line-height: 1.5;
+            animation: pulse 2s ease-in-out infinite;
         }
         .upload-hint {
-            background: #fff8e1;
-            border: 1.5px solid #ffcc80;
-            border-radius: 12px;
-            padding: 18px 22px 14px 22px;
-            margin: 24px 0 18px 0;
-            font-size: 0.95em; /* match upload subtext font size */
-            box-shadow: 0 2px 8px rgba(255, 140, 0, 0.1);
-            color: #222;
+            background: rgba(255, 248, 225, 0.5);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1.5px solid rgba(255, 204, 128, 0.4);
+            border-radius: 16px;
+            padding: 24px 28px 20px 28px;
+            margin: 32px 0 24px 0;
+            font-size: 0.95em;
+            box-shadow: var(--shadow-sm);
+            color: #1a1a1a;
             width: 100%;
             max-width: 100%;
             box-sizing: border-box;
+            transition: all var(--transition-base);
+            animation: fadeIn 0.8s ease-out 0.4s both;
         }
+
+        .upload-hint:hover {
+            background: rgba(255, 248, 225, 0.7);
+            border-color: rgba(255, 140, 0, 0.6);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
         @media (min-width: 700px) {
             .upload-hint {
                 max-width: 820px;
@@ -509,30 +1515,70 @@
         }
         .upload-hint h3 {
             color: #FF8C00;
-            margin-bottom: 10px;
-            font-size: 1em; /* match subheading size */
+            margin-bottom: 14px;
+            font-size: 1.1em;
             font-weight: 700;
             display: flex;
             align-items: center;
+            letter-spacing: 0.2px;
+            line-height: 1.4;
         }
         .upload-hint h3 i {
             color: #FFD700;
-            margin-right: 8px;
-            font-size: 1.2em;
+            margin-right: 10px;
+            font-size: 1.3em;
+            animation: lightbulb 2s ease-in-out infinite;
+        }
+
+        @keyframes lightbulb {
+            0%, 100% { 
+                transform: scale(1);
+                filter: drop-shadow(0 0 4px rgba(255, 215, 0, 0.4));
+            }
+            50% { 
+                transform: scale(1.1);
+                filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.8));
+            }
         }
         .upload-hint ul {
             margin: 0;
-            padding-left: 22px;
+            padding-left: 24px;
         }
         .upload-hint li {
             font-size: 0.95em;
-            line-height: 1.6;
-            color: #333;
-            margin-bottom: 7px;
+            line-height: 1.7;
+            color: #4a5568;
+            margin-bottom: 10px;
+            letter-spacing: 0.1px;
+            transition: all var(--transition-fast);
+            position: relative;
+            padding-left: 8px;
         }
+
+        .upload-hint li::before {
+            content: '→';
+            position: absolute;
+            left: -20px;
+            color: #FF8C00;
+            font-weight: 600;
+            opacity: 0;
+            transition: all var(--transition-fast);
+        }
+
+        .upload-hint li:hover {
+            color: #1a1a1a;
+            transform: translateX(4px);
+        }
+
+        .upload-hint li:hover::before {
+            opacity: 1;
+            left: -24px;
+        }
+
         .upload-hint li strong {
             color: #FF8C00;
             font-weight: 600;
+            letter-spacing: 0.2px;
         }
     </style>
 </head>
@@ -541,35 +1587,35 @@
     
     <div class="container">
         <div class="company-logo">
-            <span class="dot-yellow">●</span>In Time Tec<span class="dot-orange">●</span>
+            <img src="{{ url_for('static', filename='itt-logo.svg') }}" alt="In Time Tec" />
         </div>
         <div class="header">
             <h1><i class="fas fa-file-contract"></i> Appointment Letter Generator</h1>
-            <p>Generate personalized appointment letters from Excel data easily and securely.<br>Upload an Excel sheet to generate appointment letters for each row automatically!</p>
+            <p>Create professional appointment letters effortlessly! Simply upload your Excel file with employee data, and we'll automatically generate personalized appointment letters for each record. Fast, secure, and hassle-free.</p>
         </div>
 
 
 
-        <div class="upload-area" id="uploadArea" tabindex="0" role="button" aria-label="Upload files by clicking or dragging and dropping">
+        <div class="upload-area" id="uploadArea" tabindex="0" role="button" aria-label="Upload Excel file by clicking or dragging and dropping">
             <div class="upload-icon">
                 <i class="fas fa-cloud-upload-alt"></i>
             </div>
-            <div class="upload-text">Drag & Drop your Word or Excel files here</div>
-            <div class="upload-subtext">or click to browse files<br><span style="font-size:0.95em;color:#FF8C00;">• Upload <b>.docx</b>, <b>.doc</b>, or <b>.xlsx</b> files<br>• Excel upload will generate a PDF for each row (takes longer)</span></div>
+            <div class="upload-text">Drag & Drop your Excel file here</div>
+            <div class="upload-subtext">or click to browse files<br><span style="font-size:0.95em;color:#FF8C00;">• Upload <b>.xlsx</b> files only<br>• Each record in your Excel file will generate a separate PDF</span></div>
             <div class="upload-limit">
                 <i class="fas fa-rocket"></i>
-                <span>Up to 100 files for lightning-fast conversion!</span>
+                <span>Generate appointment letters for all records in your Excel file!</span>
             </div>
-            <input type="file" id="fileInput" class="file-input" multiple accept=".docx,.doc,.xlsx" aria-label="Select files to upload">
+            <input type="file" id="fileInput" class="file-input" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="Select Excel file to upload">
         </div>
 
         <div class="upload-hint">
             <h3><i class="fas fa-lightbulb"></i> Tips for Best Results</h3>
             <ul>
-                <li><strong>Word Files:</strong> Ensure your document is properly formatted before conversion</li>
-                <li><strong>Excel Files:</strong> Each row will generate a separate PDF - keep your data organized</li>
-                <li><strong>File Size:</strong> Keep files under 100MB for faster processing</li>
-                <li><strong>Batch Processing:</strong> Upload multiple files at once for efficiency</li>
+                <li><strong>Excel Files Only:</strong> Only .xlsx files are supported - ensure your file is in Excel format</li>
+                <li><strong>Multiple Records:</strong> Each record in your Excel file will generate a separate PDF - keep your data organized</li>
+                <li><strong>File Size:</strong> Keep your Excel file under 100MB for faster processing</li>
+                <li><strong>Data Organization:</strong> Ensure your Excel file has proper column headers and data structure</li>
                 <li><strong>Security:</strong> Your files are processed securely and deleted after conversion</li>
             </ul>
         </div>
@@ -577,7 +1623,32 @@
         <div class="file-list" id="fileList" style="display: none;"></div>
 
         <div style="text-align: center;">
-            <button class="btn" id="convertBtn" style="display: none;">Convert to PDF</button>
+            <button class="btn" id="convertBtn" style="display: none;"><span>Generate Appointment Letters</span></button>
+        </div>
+
+        <div id="progressDashboard" style="display: none;" class="progress-dashboard">
+            <div class="progress-header">
+                <div class="progress-title"><i class="fas fa-tasks"></i> Conversion Progress</div>
+                <div class="progress-stats">
+                    <div class="progress-stat">
+                        <div class="progress-stat-value" id="progressPercentage">0%</div>
+                        <div class="progress-stat-label">Complete</div>
+                    </div>
+                    <div class="progress-stat">
+                        <div class="progress-stat-value" id="progressFiles">0/0</div>
+                        <div class="progress-stat-label">Files</div>
+                    </div>
+                    <div class="progress-stat">
+                        <div class="progress-stat-value" id="progressETA">--</div>
+                        <div class="progress-stat-label">ETA</div>
+                    </div>
+                </div>
+            </div>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar" style="width: 0%;"></div>
+            </div>
+            <div class="progress-message" id="progressMessage">Initializing conversion...</div>
+            <div class="progress-file-list" id="progressFileList"></div>
         </div>
 
         <div class="results" id="results"></div>
@@ -604,27 +1675,21 @@
         const convertBtn = document.getElementById('convertBtn');
         const results = document.getElementById('results');
         const accessibilityInfo = document.getElementById('accessibilityInfo');
+        const progressDashboard = document.getElementById('progressDashboard');
+        const progressBar = document.getElementById('progressBar');
+        const progressPercentage = document.getElementById('progressPercentage');
+        const progressFiles = document.getElementById('progressFiles');
+        const progressETA = document.getElementById('progressETA');
+        const progressMessage = document.getElementById('progressMessage');
+        const progressFileList = document.getElementById('progressFileList');
 
         let selectedFiles = [];
-        const maxFiles = 100;
+        const maxFiles = 1; // Only one Excel file allowed
+        let fileStatusMap = {}; // Track individual file statuses
+        let lastProgressPercentage = 0; // Track last percentage to prevent decreases
+        let lastDisplayCurrent = 0; // Track last display current to prevent decreases
 
-        // Simple loader without animations
-        function showLoader(text) {
-            loaderText.textContent = text || 'Processing...';
-            loaderOverlay.style.display = 'flex';
-            if (!document.body.classList.contains('loader-active')) {
-                document.body.classList.add('loader-active');
-            }
-            announceToScreenReader(text || 'Processing started');
-        }
-        
-        function hideLoader() {
-            loaderOverlay.style.display = 'none';
-            if (document.body.classList.contains('loader-active')) {
-                document.body.classList.remove('loader-active');
-            }
-            announceToScreenReader('Processing completed');
-        }
+        // Loader functions (defined once, used throughout)
 
         // Accessibility functions
         function announceToScreenReader(message) {
@@ -690,7 +1755,6 @@
 
         // Loader overlay
         const loaderOverlay = document.getElementById('loaderOverlay');
-        const loaderProgressFill = document.getElementById('loaderProgressFill');
         const loaderText = document.getElementById('loaderText');
         
         function showLoader(text) {
@@ -713,18 +1777,38 @@
 
 
         function handleFiles(files) {
+            // Prevent file upload during conversion
+            if (document.body.classList.contains('converting')) {
+                showModal('Please wait for the current conversion to complete before uploading new files.');
+                return;
+            }
+            
+            // Validate files before upload - only allow Excel files
             const validFiles = files.filter(file => {
                 const extension = file.name.split('.').pop().toLowerCase();
-                return extension === 'docx' || extension === 'doc' || extension === 'xlsx';
+                return extension === 'xlsx';
             });
 
             if (validFiles.length === 0) {
-                showModal('Please select valid Word or Excel files (.docx, .doc, or .xlsx)');
+                showModal('Please select a valid Excel file (.xlsx only). Only Excel files are allowed.');
+                fileInput.value = '';
+                return;
+            }
+
+            // Check if any invalid files were selected
+            const invalidFiles = files.filter(file => {
+                const extension = file.name.split('.').pop().toLowerCase();
+                return extension !== 'xlsx';
+            });
+
+            if (invalidFiles.length > 0) {
+                showModal('Only Excel files (.xlsx) are allowed. Please select an Excel file.');
+                fileInput.value = '';
                 return;
             }
 
             if (selectedFiles.length + validFiles.length > maxFiles) {
-                showModal(`You can only upload up to ${maxFiles} files at a time. Please remove some files or upload in smaller batches. If you need to convert more, please split your upload into multiple batches of 100 files or less.`);
+                showModal(`Only one Excel file can be uploaded at a time. Please select a single Excel file (.xlsx).`);
                 fileInput.value = '';
                 return;
             }
@@ -750,6 +1834,8 @@
             selectedFiles.forEach((file, index) => {
                 const fileItem = document.createElement('div');
                 fileItem.className = 'file-item';
+                fileItem.style.animationDelay = `${index * 0.05}s`;
+                fileItem.style.opacity = '0';
                 fileItem.innerHTML = `
                     <div class="file-info">
                         <div class="file-icon">
@@ -766,10 +1852,19 @@
                     </button>
                 `;
                 fileList.appendChild(fileItem);
+                // Trigger animation
+                setTimeout(() => {
+                    fileItem.style.opacity = '1';
+                }, index * 50);
             });
         }
 
         function removeFile(index) {
+            // Prevent removal during conversion
+            if (document.body.classList.contains('converting')) {
+                return;
+            }
+            
             const removedFile = selectedFiles[index];
             selectedFiles.splice(index, 1);
             displayFileList();
@@ -784,40 +1879,319 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
+        function formatTime(seconds) {
+            if (!seconds || seconds < 0) return '--';
+            if (seconds < 60) return `${seconds}s`;
+            const minutes = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            if (minutes < 60) return `${minutes}m ${secs}s`;
+            const hours = Math.floor(minutes / 60);
+            const mins = minutes % 60;
+            return `${hours}h ${mins}m`;
+        }
+
+        function updateProgressDashboard(progressData) {
+            if (!progressData) return;
+
+            // Use displayTotal consistently for file count display
+            // Priority: displayTotal > files.length > selectedFiles.length
+            let fileCountForDisplay = progressData.display_total || progressData.total || 0;
+            if (fileCountForDisplay === 0) {
+                if (progressData.files && progressData.files.length > 0) {
+                    fileCountForDisplay = progressData.files.length;
+                } else if (selectedFiles.length > 0) {
+                    fileCountForDisplay = selectedFiles.length;
+                }
+            }
+            
+            // Use display_current from backend directly - backend ensures it never decreases
+            // Only recalculate if backend doesn't provide it (shouldn't happen in normal flow)
+            let displayCurrent = progressData.display_current;
+            if (displayCurrent === undefined || displayCurrent === null) {
+                // Fallback calculation only if backend doesn't provide it
+                if (fileCountForDisplay > 0 && progressData.total > 0 && progressData.current !== undefined) {
+                    displayCurrent = Math.min(fileCountForDisplay, Math.round((progressData.current / progressData.total) * fileCountForDisplay));
+                } else {
+                    displayCurrent = 0;
+                }
+            }
+            
+            // Ensure displayCurrent never decreases (additional safeguard on frontend)
+            displayCurrent = Math.max(lastDisplayCurrent, displayCurrent);
+            lastDisplayCurrent = displayCurrent;
+            
+            // Ensure displayCurrent doesn't exceed fileCountForDisplay
+            const finalDisplayCurrent = Math.min(displayCurrent, fileCountForDisplay);
+            progressFiles.textContent = `${finalDisplayCurrent}/${fileCountForDisplay}`;
+
+            // Calculate percentage based on user-facing progress (display_current/display_total)
+            // This ensures the progress bar matches the file count display
+            let percentage = 0;
+            if (fileCountForDisplay > 0 && finalDisplayCurrent > 0) {
+                // Calculate percentage from display_current/display_total for accurate user-facing progress
+                percentage = Math.min(100, Math.round((finalDisplayCurrent / fileCountForDisplay) * 100));
+            } else if (progressData.percentage !== undefined && fileCountForDisplay === 0) {
+                // Fallback to backend percentage only if display values are not available
+                percentage = progressData.percentage;
+            }
+            
+            // Ensure percentage never decreases (monotonic increase)
+            // Use both the stored last percentage and current width as safeguards
+            percentage = Math.max(lastProgressPercentage, percentage, parseFloat(progressBar.style.width) || 0);
+            lastProgressPercentage = percentage;
+            
+            // Update progress bar and percentage
+            progressBar.style.width = percentage + '%';
+            progressPercentage.textContent = percentage + '%';
+
+            // Update ETA
+            if (progressData.eta_seconds !== null && progressData.eta_seconds !== undefined) {
+                progressETA.textContent = formatTime(progressData.eta_seconds);
+            } else {
+                progressETA.textContent = '--';
+            }
+
+            // Update message with loading indicator
+            if (progressData.message) {
+                let messageText = progressData.message;
+                // Remove any trailing dots first
+                messageText = messageText.replace(/\.+$/, '');
+                // Add spinner for visual feedback
+                progressMessage.innerHTML = '<span class="loading-spinner"></span><span>' + messageText + '</span>';
+            }
+
+            // Update file list - ensure consistency with fileCountForDisplay
+            progressFileList.innerHTML = '';
+            
+            if (progressData.files && progressData.files.length > 0) {
+                // Use files from progressData, but ensure count matches fileCountForDisplay
+                let filesToShow = progressData.files;
+                
+                // If fileCountForDisplay is set and different from files.length, we need to handle it
+                // For Excel files, displayTotal might be 100 (rows) but files array might have fewer entries
+                // In this case, show all files from the array (they represent the actual items being processed)
+                if (fileCountForDisplay > 0 && filesToShow.length !== fileCountForDisplay) {
+                    // If we have fewer files in array than displayTotal, show what we have
+                    // The backend should be updating the files array as processing continues
+                    filesToShow = filesToShow;
+                }
+                
+                filesToShow.forEach(file => {
+                    const fileItem = document.createElement('div');
+                    fileItem.className = 'progress-file-item';
+                    const statusClass = file.status || 'pending';
+                    fileItem.innerHTML = `
+                        <div class="progress-file-info">
+                            <div class="progress-file-icon">
+                                <i class="fas fa-file-word"></i>
+                            </div>
+                            <div class="progress-file-name" title="${file.name}">${file.name}</div>
+                        </div>
+                        <div class="progress-file-status ${statusClass}">${statusClass.charAt(0).toUpperCase() + statusClass.slice(1)}</div>
+                    `;
+                    progressFileList.appendChild(fileItem);
+                });
+            } else if (selectedFiles.length > 0) {
+                // Show all selected files with pending status
+                // Use fileCountForDisplay to ensure consistency
+                let filesToShow = selectedFiles;
+                if (fileCountForDisplay > 0 && fileCountForDisplay < selectedFiles.length) {
+                    filesToShow = selectedFiles.slice(0, fileCountForDisplay);
+                }
+                filesToShow.forEach((file, index) => {
+                    const status = fileStatusMap[file.name] || 'pending';
+                    const fileItem = document.createElement('div');
+                    fileItem.className = 'progress-file-item';
+                    fileItem.innerHTML = `
+                        <div class="progress-file-info">
+                            <div class="progress-file-icon">
+                                <i class="fas fa-file-word"></i>
+                            </div>
+                            <div class="progress-file-name" title="${file.name}">${file.name}</div>
+                        </div>
+                        <div class="progress-file-status ${status}">${status.charAt(0).toUpperCase() + status.slice(1)}</div>
+                    `;
+                    progressFileList.appendChild(fileItem);
+                });
+            }
+        }
+
+        function getErrorSuggestions(errorMessage) {
+            const suggestions = [];
+            const lowerError = errorMessage.toLowerCase();
+
+            if (lowerError.includes('libreoffice') || lowerError.includes('soffice')) {
+                suggestions.push('Ensure LibreOffice is installed on your system');
+                suggestions.push('Check if LibreOffice is in your system PATH');
+                suggestions.push('Try restarting the application after installing LibreOffice');
+            } else if (lowerError.includes('timeout')) {
+                suggestions.push('Try converting files in smaller batches');
+                suggestions.push('Check if files are corrupted or too large');
+                suggestions.push('Ensure your system has sufficient resources');
+            } else if (lowerError.includes('size') || lowerError.includes('large')) {
+                suggestions.push('Reduce the number of files in your batch');
+                suggestions.push('Compress files before uploading');
+                suggestions.push('Split large batches into multiple smaller uploads');
+            } else if (lowerError.includes('format') || lowerError.includes('invalid')) {
+                suggestions.push('Verify file extension is .xlsx (Excel files only)');
+                suggestions.push('Check if files are corrupted');
+                suggestions.push('Try opening files in Microsoft Office/LibreOffice to verify they\'re valid');
+            } else if (lowerError.includes('permission') || lowerError.includes('access')) {
+                suggestions.push('Check file permissions');
+                suggestions.push('Ensure the application has write access to temp directories');
+                suggestions.push('Try running the application with appropriate permissions');
+            } else if (lowerError.includes('disk') || lowerError.includes('space')) {
+                suggestions.push('Free up disk space on your system');
+                suggestions.push('Clear temporary files');
+                suggestions.push('Reduce batch size');
+            } else {
+                suggestions.push('Check the file format and ensure it\'s not corrupted');
+                suggestions.push('Try converting a single file first to isolate the issue');
+                suggestions.push('Ensure your system meets the minimum requirements');
+            }
+
+            return suggestions;
+        }
+
+        function displayError(error, context = 'conversion') {
+            const errorMessage = error.message || error || 'An unknown error occurred';
+            const suggestions = getErrorSuggestions(errorMessage);
+            
+            let errorHTML = `
+                <div class="result-item error">
+                    <div class="result-header">
+                        <div class="result-title">${context === 'upload' ? 'Upload Error' : 'Conversion Error'}</div>
+                        <div class="result-status error">Error</div>
+                    </div>
+                    <div class="error-message">${escapeHtml(errorMessage)}</div>
+                    <div class="error-details">
+                        <strong>Error Details:</strong> ${escapeHtml(errorMessage)}
+                    </div>
+                    <div class="error-suggestion">
+                        <div class="error-suggestion-title"><i class="fas fa-lightbulb"></i> Suggested Solutions:</div>
+                        <ul>
+            `;
+            
+            suggestions.forEach(suggestion => {
+                errorHTML += `<li>${escapeHtml(suggestion)}</li>`;
+            });
+            
+            errorHTML += `
+                        </ul>
+                    </div>
+                </div>
+            `;
+            
+            return errorHTML;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         convertBtn.addEventListener('click', async () => {
             if (selectedFiles.length === 0) return;
 
-                            convertBtn.disabled = true;
-                showLoader(selectedFiles.length > 1 ? `Please wait, converting ${selectedFiles.length} files...` : 'Converting file...');
-                results.innerHTML = '';
+            // Disable UI interactions
+            convertBtn.disabled = true;
+            document.body.classList.add('converting');
+            
+            // Disable all remove buttons
+            document.querySelectorAll('.remove-file').forEach(btn => {
+                btn.disabled = true;
+            });
+            
+            // Disable file list items
+            document.querySelectorAll('.file-item').forEach(item => {
+                item.classList.add('disabled');
+            });
+            
+            results.innerHTML = '';
+            progressDashboard.style.display = 'block';
+            progressDashboard.classList.add('active');
+            fileStatusMap = {};
+            lastProgressPercentage = 0; // Reset progress tracking for new conversion
+            lastDisplayCurrent = 0; // Reset display current tracking
+            
+            // Scroll to progress dashboard with offset
+            setTimeout(() => {
+                const dashboardRect = progressDashboard.getBoundingClientRect();
+                const scrollOffset = window.pageYOffset || document.documentElement.scrollTop;
+                const targetPosition = dashboardRect.top + scrollOffset - 20; // 20px offset from top
+                window.scrollTo({
+                    top: targetPosition,
+                    behavior: 'smooth'
+                });
+            }, 150);
+            
+            // Initialize file statuses
+            selectedFiles.forEach(file => {
+                fileStatusMap[file.name] = 'pending';
+            });
+            
+            // Initialize progress dashboard
+            const isExcel = selectedFiles.length === 1 && selectedFiles[0].name.toLowerCase().endsWith('.xlsx');
+            updateProgressDashboard({
+                current: 0,
+                total: selectedFiles.length,
+                display_total: selectedFiles.length,
+                display_current: 0,
+                percentage: 0,
+                message: isExcel 
+                    ? 'Generating appointment letters from Excel file...'
+                    : 'Preparing files for PDF generation...',
+                files: selectedFiles.map(f => ({ name: f.name, status: 'pending' }))
+            });
 
             const formData = new FormData();
             selectedFiles.forEach(file => {
                 formData.append('files[]', file);
             });
 
+            // Declare progressInterval outside try block so it's accessible in catch and finally
+            let progressInterval = null;
+            let isDownloading = false;
+
             try {
-                let progressInterval;
                 
                 const startProgressPolling = () => {
                     progressInterval = setInterval(async () => {
                         try {
+                            // Don't poll if we're already downloading
+                            if (isDownloading) {
+                                clearInterval(progressInterval);
+                                return;
+                            }
+                            
                             const progressResponse = await fetch('/progress');
                             const progressData = await progressResponse.json();
                             
                             if (progressData.status === 'converting') {
-                                showLoader(progressData.message || 'Converting...');
+                                updateProgressDashboard(progressData);
+                                // Update file statuses
+                                if (progressData.files) {
+                                    progressData.files.forEach(file => {
+                                        fileStatusMap[file.name] = file.status;
+                                    });
+                                }
                             } else if (progressData.status === 'completed') {
                                 clearInterval(progressInterval);
-                                showLoader('Downloading...');
+                                updateProgressDashboard({
+                                    ...progressData,
+                                    percentage: 100,
+                                    message: 'Conversion complete! Downloading...'
+                                });
                             } else if (progressData.status === 'error') {
                                 clearInterval(progressInterval);
                                 throw new Error(progressData.error || 'Conversion failed');
                             }
                         } catch (error) {
                             console.error('Progress polling error:', error);
+                            // Don't throw here, just log - the main request will handle errors
                         }
-                    }, 500);
+                    }, 300);
                 };
 
                 startProgressPolling();
@@ -827,12 +2201,20 @@
                     body: formData
                 });
 
-                clearInterval(progressInterval);
+                // Stop progress polling immediately when response is received
+                if (progressInterval) {
+                    clearInterval(progressInterval);
+                    progressInterval = null;
+                }
 
                 if (response.status === 413) {
-                    results.innerHTML = `<div class="result-item error"><div class="result-header"><div class="result-title">Upload Error</div><div class="result-status error">Too Large</div></div><div class="error-message">Your upload is too large. Please select fewer or smaller files (max 100 MB total).</div></div>`;
+                    progressDashboard.style.display = 'none';
+                    progressDashboard.classList.remove('active');
+                    document.body.classList.remove('converting');
+                    results.innerHTML = displayError({
+                        message: 'Your upload is too large. Maximum size is 100 MB total. Please select fewer or smaller files.'
+                    }, 'upload');
                     convertBtn.disabled = false;
-                    hideLoader();
                     selectedFiles = [];
                     displayFileList();
                     return;
@@ -840,52 +2222,96 @@
 
                 const contentType = response.headers.get('content-type');
                 if (contentType && (contentType.includes('application/pdf') || contentType.includes('application/zip'))) {
+                    // Get the last progress data to preserve display_total and display_current
+                    // This is important for Excel files where display_total != selectedFiles.length
+                    let lastProgressData = null;
+                    try {
+                        const lastProgressResponse = await fetch('/progress');
+                        lastProgressData = await lastProgressResponse.json();
+                    } catch (e) {
+                        // If we can't get last progress, use defaults
+                    }
+                    
+                    // Update progress to show download is starting
+                    const finalDisplayTotal = lastProgressData?.display_total || selectedFiles.length;
+                    const finalDisplayCurrent = lastProgressData?.display_current || finalDisplayTotal;
+                    updateProgressDashboard({
+                        percentage: 100,
+                        current: selectedFiles.length,
+                        total: selectedFiles.length,
+                        display_total: finalDisplayTotal,
+                        display_current: finalDisplayCurrent,
+                        message: 'Conversion complete! Downloading...'
+                    });
+                    
+                    // Mark that we're downloading to prevent progress polling interference
+                    isDownloading = true;
+                    
                     const blob = await response.blob();
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
-                    let filename = contentType.includes('application/pdf') ? 'document.pdf' : 'Appointment_letters.zip';
+                    // Get filename from Content-Disposition header (set by backend)
+                    let filename = 'Appointment_letters.zip'; // Default fallback
                     const disposition = response.headers.get('content-disposition');
                     if (disposition && disposition.indexOf('filename=') !== -1) {
                         filename = disposition.split('filename=')[1].replace(/['"]/g, '');
+                    } else if (contentType.includes('application/pdf')) {
+                        filename = 'document.pdf';
                     }
                     a.href = url;
                     a.download = filename;
                     document.body.appendChild(a);
                     a.click();
-                    a.remove();
-                    window.URL.revokeObjectURL(url);
-                    hideLoader();
-                    convertBtn.disabled = false;
-                    selectedFiles = [];
-                    displayFileList();
-                    const fileType = contentType.includes('application/pdf') ? 'PDF' : 'ZIP file';
-                    results.innerHTML = `<div class="result-item success"><div class="result-header"><div class="result-title">Success</div><div class="result-status success">Downloaded</div></div><div>${fileType} downloaded successfully.</div></div>`;
-                    announceToScreenReader('Conversion completed successfully');
+                    
+                    // Wait a brief moment to ensure download has started before hiding dashboard
+                    setTimeout(() => {
+                        a.remove();
+                        window.URL.revokeObjectURL(url);
+                        progressDashboard.style.display = 'none';
+                        progressDashboard.classList.remove('active');
+                        document.body.classList.remove('converting');
+                        convertBtn.disabled = false;
+                        selectedFiles = [];
+                        displayFileList();
+                        const fileType = contentType.includes('application/pdf') ? 'PDF' : 'ZIP file';
+                        const isZip = contentType.includes('application/zip');
+                        const successMessage = isZip 
+                            ? `<i class="fas fa-check-circle" style="color: #28a745; margin-right: 8px;"></i>"${filename}" has been downloaded successfully to your device.`
+                            : `<i class="fas fa-check-circle" style="color: #28a745; margin-right: 8px;"></i>"${filename}" has been downloaded successfully to your device.`;
+                        results.innerHTML = `<div class="result-item success"><div class="result-header"><div class="result-title">Conversion Complete!</div><div class="result-status success">Downloaded</div></div><div style="margin-top: 8px;">${successMessage}</div></div>`;
+                        announceToScreenReader(`Conversion completed successfully. ${fileType} file downloaded.`);
+                    }, 300);
                     return;
                 }
 
                 const data = await response.json();
                 throw new Error(data.error || 'Conversion failed');
             } catch (error) {
-                results.innerHTML = `
-                    <div class="result-item error">
-                        <div class="result-header">
-                            <div class="result-title">Conversion Error</div>
-                            <div class="result-status error">Error</div>
-                        </div>
-                        <div class="error-message">${error.message}</div>
-                    </div>
-                `;
-                announceToScreenReader('Conversion failed: ' + error.message);
-
+                // Stop progress polling if still running
+                if (progressInterval) {
+                    clearInterval(progressInterval);
+                    progressInterval = null;
+                }
+                
+                progressDashboard.style.display = 'none';
+                progressDashboard.classList.remove('active');
+                document.body.classList.remove('converting');
+                results.innerHTML = displayError(error, 'conversion');
+                announceToScreenReader('Conversion failed: ' + (error.message || 'Unknown error'));
             } finally {
+                // Ensure progress polling is stopped
+                if (progressInterval) {
+                    clearInterval(progressInterval);
+                    progressInterval = null;
+                }
+                
+                // Re-enable UI interactions
+                document.body.classList.remove('converting');
                 convertBtn.disabled = false;
-                hideLoader();
                 selectedFiles = [];
                 displayFileList();
                 fileInput.value = '';
                 convertBtn.style.display = 'none';
-
             }
         });
     </script>
