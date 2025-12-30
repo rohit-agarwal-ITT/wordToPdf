@@ -22,6 +22,14 @@ main = Blueprint('main', __name__)
 
 ALLOWED_EXTENSIONS = {'xlsx'}  # Only Excel files allowed
 
+# Thread safety: Lock for conversion_progress dictionary
+conversion_progress_lock = threading.Lock()
+
+# Concurrent conversion limits: Semaphore to limit simultaneous conversions
+# Default: 2 concurrent conversions (configurable via environment variable)
+MAX_CONCURRENT_CONVERSIONS = int(os.environ.get('MAX_CONCURRENT_CONVERSIONS', '2'))
+conversion_semaphore = threading.Semaphore(MAX_CONCURRENT_CONVERSIONS)
+
 # Global progress tracking
 conversion_progress = {
     'status': 'idle',  # idle, converting, completed, error
@@ -39,106 +47,137 @@ conversion_progress = {
 }
 
 def reset_progress():
+    """Reset progress tracking - thread-safe"""
     global conversion_progress
-    conversion_progress = {
-        'status': 'idle',
-        'current': 0,
-        'total': 0,
-        'message': '',
-        'error': None,
-        'percentage': 0,
-        'eta_seconds': None,
-        'start_time': None,
-        'elapsed_time': 0,
-        'files': [],
-        'display_total': 0,  # Actual number of files/records to display to user
-        'display_current': 0  # Current progress mapped to display_total scale
-    }
+    with conversion_progress_lock:
+        conversion_progress = {
+            'status': 'idle',
+            'current': 0,
+            'total': 0,
+            'message': '',
+            'error': None,
+            'percentage': 0,
+            'eta_seconds': None,
+            'start_time': None,
+            'elapsed_time': 0,
+            'files': [],
+            'display_total': 0,  # Actual number of files/records to display to user
+            'display_current': 0  # Current progress mapped to display_total scale
+        }
+
+def set_progress_status(status, error=None, eta_seconds=None):
+    """Set conversion progress status - thread-safe helper"""
+    global conversion_progress
+    with conversion_progress_lock:
+        conversion_progress['status'] = status
+        if error is not None:
+            conversion_progress['error'] = error
+        if eta_seconds is not None:
+            conversion_progress['eta_seconds'] = eta_seconds
 
 def update_progress(current, total, message, current_file=None, file_status=None, display_total=None):
+    """Update conversion progress - thread-safe"""
     global conversion_progress
     from time import time
     
-    if conversion_progress['start_time'] is None:
-        conversion_progress['start_time'] = time()
-    
-    conversion_progress['current'] = current
-    conversion_progress['total'] = total
-    conversion_progress['message'] = message
-    conversion_progress['status'] = 'converting'
-    
-    # Set display_total (actual number of files/records to show to user)
-    # Once set to a non-zero value, don't change it unless explicitly provided (to prevent fluctuations)
-    if display_total is not None:
-        conversion_progress['display_total'] = display_total
-    elif 'display_total' not in conversion_progress or conversion_progress['display_total'] == 0:
-        # Default to total if not set, but only if it's not already set to a non-zero value
-        # This prevents overwriting a valid display_total with total (which might be total_steps)
-        conversion_progress['display_total'] = total
-    # If display_total is already set to a non-zero value and display_total parameter is None,
-    # keep the existing value (don't overwrite it)
-    
-    # Calculate percentage based on total steps (internal tracking)
-    if total > 0:
-        conversion_progress['percentage'] = min(100, int((current / total) * 100))
-    else:
-        conversion_progress['percentage'] = 0
-    
-    # Calculate ETA based on display_total (user-facing count)
-    elapsed = time() - conversion_progress['start_time']
-    conversion_progress['elapsed_time'] = int(elapsed)
-    
-    display_total_val = conversion_progress.get('display_total', total)
-    # Calculate current display progress (for ETA calculation and frontend display)
-    if display_total_val > 0 and total > 0:
-        # Map internal progress to display progress
-        # Ensure display_current never decreases (monotonic increase)
-        calculated_display_current = min(display_total_val, int((current / total) * display_total_val))
-        existing_display_current = conversion_progress.get('display_current', 0)
-        # Only update if the new value is greater than or equal to existing (prevent decreases)
-        display_current = max(existing_display_current, calculated_display_current)
-        # Store display_current for frontend to use directly
-        conversion_progress['display_current'] = display_current
+    with conversion_progress_lock:
+        if conversion_progress['start_time'] is None:
+            conversion_progress['start_time'] = time()
         
-        # Calculate ETA only when we have meaningful progress (at least 1 item completed)
-        # This prevents incorrect ETA calculations early in the process
-        if display_current > 0 and display_total_val > display_current and elapsed > 0:
-            # Use a minimum of 1 second per file to avoid division by zero or unrealistic ETAs
-            avg_time_per_file = max(1, elapsed / display_current)
-            remaining_files = display_total_val - display_current
-            conversion_progress['eta_seconds'] = int(avg_time_per_file * remaining_files)
-        elif display_current >= display_total_val:
-            # All items completed - check if we're still processing (ZIP creation, etc.)
-            # If status is still 'converting', show a small ETA for final processing
-            if conversion_progress.get('status') == 'converting':
-                # Estimate 5-10 seconds for ZIP creation and finalization
-                conversion_progress['eta_seconds'] = 5
-            else:
-                # Fully completed
-                conversion_progress['eta_seconds'] = 0
+        conversion_progress['current'] = current
+        conversion_progress['total'] = total
+        conversion_progress['message'] = message
+        conversion_progress['status'] = 'converting'
+        
+        # Set display_total (actual number of files/records to show to user)
+        # Once set to a non-zero value, don't change it unless explicitly provided (to prevent fluctuations)
+        if display_total is not None:
+            conversion_progress['display_total'] = display_total
+        elif 'display_total' not in conversion_progress or conversion_progress['display_total'] == 0:
+            # Default to total if not set, but only if it's not already set to a non-zero value
+            # This prevents overwriting a valid display_total with total (which might be total_steps)
+            conversion_progress['display_total'] = total
+        # If display_total is already set to a non-zero value and display_total parameter is None,
+        # keep the existing value (don't overwrite it)
+        
+        # Calculate percentage based on total steps (internal tracking)
+        if total > 0:
+            conversion_progress['percentage'] = min(100, int((current / total) * 100))
         else:
-            conversion_progress['eta_seconds'] = None
-    else:
-        conversion_progress['display_current'] = 0
-        conversion_progress['eta_seconds'] = None
-    
-    # Update file status
-    if current_file and file_status:
-        # Find or create file entry
-        file_found = False
-        for file_entry in conversion_progress['files']:
-            if file_entry.get('name') == current_file:
-                file_entry['status'] = file_status
-                file_entry['progress'] = current
-                file_found = True
-                break
+            conversion_progress['percentage'] = 0
         
-        if not file_found:
-            conversion_progress['files'].append({
-                'name': current_file,
-                'status': file_status,
-                'progress': current
-            })
+        # Calculate ETA based on display_total (user-facing count)
+        elapsed = time() - conversion_progress['start_time']
+        conversion_progress['elapsed_time'] = int(elapsed)
+        
+        display_total_val = conversion_progress.get('display_total', total)
+        # Calculate current display progress (for ETA calculation and frontend display)
+        if display_total_val > 0 and total > 0:
+            # Map internal progress to display progress
+            # Ensure display_current never decreases (monotonic increase)
+            calculated_display_current = min(display_total_val, int((current / total) * display_total_val))
+            existing_display_current = conversion_progress.get('display_current', 0)
+            # Only update if the new value is greater than or equal to existing (prevent decreases)
+            display_current = max(existing_display_current, calculated_display_current)
+            # Store display_current for frontend to use directly
+            conversion_progress['display_current'] = display_current
+            
+            # Calculate ETA only when we have meaningful progress
+            # Require at least 3 files processed for more accurate ETA calculation
+            # This prevents incorrect ETA calculations early in the process
+            if display_current > 0 and display_total_val > display_current and elapsed > 0:
+                remaining_files = display_total_val - display_current
+                
+                # Use different calculation strategies based on sample size
+                if display_current >= 3:
+                    # With 3+ samples, use direct average (more accurate)
+                    avg_time_per_file = elapsed / display_current
+                elif display_current >= 2:
+                    # With 2 samples, apply 1.5x multiplier to be more conservative
+                    avg_time_per_file = (elapsed / display_current) * 1.5
+                else:
+                    # With only 1 sample, apply 2x multiplier and use minimum 2 seconds per file
+                    # This prevents unrealistic ETAs from a single slow file
+                    avg_time_per_file = max(2, (elapsed / display_current) * 2)
+                
+                # Calculate ETA
+                estimated_eta = avg_time_per_file * remaining_files
+                
+                # Cap ETA at 2 hours (7200 seconds) to prevent unrealistic estimates
+                # This handles edge cases where early files are much slower than average
+                conversion_progress['eta_seconds'] = min(int(estimated_eta), 7200)
+            elif display_current >= display_total_val:
+                # All items completed - check if we're still processing (ZIP creation, etc.)
+                # If status is still 'converting', show a small ETA for final processing
+                if conversion_progress.get('status') == 'converting':
+                    # Estimate 5-10 seconds for ZIP creation and finalization
+                    conversion_progress['eta_seconds'] = 5
+                else:
+                    # Fully completed
+                    conversion_progress['eta_seconds'] = 0
+            else:
+                conversion_progress['eta_seconds'] = None
+        else:
+            conversion_progress['display_current'] = 0
+            conversion_progress['eta_seconds'] = None
+        
+        # Update file status
+        if current_file and file_status:
+            # Find or create file entry
+            file_found = False
+            for file_entry in conversion_progress['files']:
+                if file_entry.get('name') == current_file:
+                    file_entry['status'] = file_status
+                    file_entry['progress'] = current
+                    file_found = True
+                    break
+            
+            if not file_found:
+                conversion_progress['files'].append({
+                    'name': current_file,
+                    'status': file_status,
+                    'progress': current
+                })
 
 def allowed_file(filename):
     # Only allow Excel files (.xlsx)
@@ -274,33 +313,47 @@ def index():
 
 @main.route('/progress')
 def get_progress():
-    """Return current conversion progress"""
+    """Return current conversion progress - thread-safe"""
     global conversion_progress
-    return jsonify(conversion_progress)
+    with conversion_progress_lock:
+        # Create a copy to avoid holding lock during JSON serialization
+        progress_copy = conversion_progress.copy()
+        # Deep copy the files list to avoid race conditions
+        progress_copy['files'] = conversion_progress['files'].copy()
+    return jsonify(progress_copy)
 
 @main.route('/upload', methods=['POST'])
 def upload_file():
+    """Handle file upload and conversion with thread safety and concurrency limits"""
     global conversion_progress
     
-    if 'files[]' not in request.files:
-        return jsonify({'error': 'An error occurred during conversion. Please try again.'}), 400
+    # Acquire semaphore to limit concurrent conversions
+    # If limit is reached, return 503 Service Unavailable
+    if not conversion_semaphore.acquire(blocking=False):
+        return jsonify({
+            'error': 'Server is busy processing other conversions. Please try again in a moment.'
+        }), 503
     
-    files = request.files.getlist('files[]')
-    if not files or files[0].filename == '' or files[0].filename is None:
-        return jsonify({'error': 'No files selected. Please choose an Excel file (.xlsx) to upload.'}), 400
-    
-    # Validate that only Excel files are uploaded
-    for file in files:
-        if file and file.filename:
-            if not allowed_file(file.filename):
-                return jsonify({'error': f'Invalid file type: {file.filename}. Only Excel files (.xlsx) are allowed.'}), 400
-    
-    # Reset progress for new conversion
-    reset_progress()
-    
-    # Excel to Word to PDF batch logic
-    if len(files) == 1 and files[0].filename and files[0].filename.lower().endswith('.xlsx'):
-        temp_dir = tempfile.mkdtemp()
+    try:
+        if 'files[]' not in request.files:
+            return jsonify({'error': 'An error occurred during conversion. Please try again.'}), 400
+        
+        files = request.files.getlist('files[]')
+        if not files or files[0].filename == '' or files[0].filename is None:
+            return jsonify({'error': 'No files selected. Please choose an Excel file (.xlsx) to upload.'}), 400
+        
+        # Validate that only Excel files are uploaded
+        for file in files:
+            if file and file.filename:
+                if not allowed_file(file.filename):
+                    return jsonify({'error': f'Invalid file type: {file.filename}. Only Excel files (.xlsx) are allowed.'}), 400
+        
+        # Reset progress for new conversion
+        reset_progress()
+        
+        # Excel to Word to PDF batch logic
+        if len(files) == 1 and files[0].filename and files[0].filename.lower().endswith('.xlsx'):
+            temp_dir = tempfile.mkdtemp()
         output_dir = tempfile.mkdtemp()
         pdf_files = []
         errors = []
@@ -324,7 +377,8 @@ def upload_file():
             # Total steps: DOCX generation (50%) + PDF conversion (50%)
             total_steps = total_rows * 2
             # Set display_total to actual number of records (not steps)
-            conversion_progress['display_total'] = total_rows
+            with conversion_progress_lock:
+                conversion_progress['display_total'] = total_rows
             update_progress(0, total_steps, 'Preparing appointment letters for PDF generation...', display_total=total_rows)
             
             def generate_docx(row_tuple):
@@ -468,11 +522,12 @@ def upload_file():
                     raise conversion_error[0]
                 
             except Exception as e:
-                conversion_progress['status'] = 'error'
-                conversion_progress['error'] = 'An error occurred during conversion. Please try again.'
+                set_progress_status('error', error='An error occurred during conversion. Please try again.')
                 shutil.rmtree(temp_dir)
                 shutil.rmtree(output_dir)
-                return jsonify({'error': conversion_progress['error']}), 500
+                with conversion_progress_lock:
+                    error_msg = conversion_progress['error']
+                return jsonify({'error': error_msg}), 500
             # Collect PDFs and update progress (90% to 100%)
             pdfs_collected = 0
             for idx, docx_file in enumerate(docx_files):
@@ -491,18 +546,19 @@ def upload_file():
                 else:
                     errors.append(f'PDF not found for {base}')
             if errors:
-                conversion_progress['status'] = 'error'
-                conversion_progress['error'] = 'An error occurred during conversion. Please try again.'
+                set_progress_status('error', error='An error occurred during conversion. Please try again.')
                 shutil.rmtree(temp_dir)
                 shutil.rmtree(output_dir)
-                return jsonify({'error': conversion_progress['error']}), 500
+                with conversion_progress_lock:
+                    error_msg = conversion_progress['error']
+                return jsonify({'error': error_msg}), 500
             # All PDFs collected, creating ZIP
             # Keep status as 'converting' during ZIP creation so ETA still shows
             zip_start_time = time.time()
             update_progress(total_steps, total_steps, 'All PDFs created! Creating ZIP package...', display_total=total_rows)
             # Set a small ETA for ZIP creation - estimate based on number of files
             estimated_zip_time = min(10, max(3, len(pdf_files) * 0.1))  # 0.1s per file, min 3s, max 10s
-            conversion_progress['eta_seconds'] = int(estimated_zip_time)
+            set_progress_status('converting', eta_seconds=int(estimated_zip_time))
             # Use lower compression for faster ZIP creation (compresslevel=1 is much faster than 6)
             # For large files, use a temporary file instead of BytesIO to avoid memory issues
             zip_buffer = io.BytesIO()
@@ -523,8 +579,7 @@ def upload_file():
             zip_buffer.seek(0)
             # Update progress one more time before marking as completed
             update_progress(total_steps, total_steps, 'Successfully created all PDF appointment letters! Download starting...', display_total=total_rows)
-            conversion_progress['status'] = 'completed'
-            conversion_progress['eta_seconds'] = 0
+            set_progress_status('completed', eta_seconds=0)
             # Send file with explicit timeout and chunk size for better performance
             return send_file(
                 zip_buffer,
@@ -534,67 +589,71 @@ def upload_file():
                 max_age=0  # Prevent caching
             )
         except Exception as e:
-            conversion_progress['status'] = 'error'
-            conversion_progress['error'] = 'An error occurred during conversion. Please try again.'
+            set_progress_status('error', error='An error occurred during conversion. Please try again.')
             shutil.rmtree(temp_dir)
             shutil.rmtree(output_dir)
-            return jsonify({'error': conversion_progress['error']}), 500
-    
-    # Handle single file case
-    if len(files) == 1:
-        file = files[0]
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename or 'uploaded.docx')
-            unique_filename = f"{uuid.uuid4().hex}_{filename}"
-            input_path = os.path.join(current_app.config['UPLOAD_FOLDER'], unique_filename)
-            file.save(input_path)
-            
-            # For single file: 0-50% preparation, 50-100% PDF conversion
-            conversion_progress['display_total'] = 1
-            update_progress(0, 2, 'Preparing file for PDF conversion...', filename, 'processing', display_total=1)
-            update_progress(1, 2, 'Creating PDF...', filename, 'processing', display_total=1)
-            
-            # Convert single file
-            result = convert_single_file((input_path, filename))
-            output_pdf, pdf_name, error = result
-            
-            if error or output_pdf is None:
-                conversion_progress['status'] = 'error'
-                conversion_progress['error'] = 'An error occurred during conversion. Please try again.'
-                update_progress(1, 2, 'Error converting file', filename, 'error')
+            with conversion_progress_lock:
+                error_msg = conversion_progress['error']
+            return jsonify({'error': error_msg}), 500
+        
+        # Handle single file case
+        if len(files) == 1:
+            file = files[0]
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename or 'uploaded.docx')
+                unique_filename = f"{uuid.uuid4().hex}_{filename}"
+                input_path = os.path.join(current_app.config['UPLOAD_FOLDER'], unique_filename)
+                file.save(input_path)
+                
+                # For single file: 0-50% preparation, 50-100% PDF conversion
+                with conversion_progress_lock:
+                    conversion_progress['display_total'] = 1
+                update_progress(0, 2, 'Preparing file for PDF conversion...', filename, 'processing', display_total=1)
+                update_progress(1, 2, 'Creating PDF...', filename, 'processing', display_total=1)
+                
+                # Convert single file
+                result = convert_single_file((input_path, filename))
+                output_pdf, pdf_name, error = result
+                
+                if error or output_pdf is None:
+                    set_progress_status('error', error='An error occurred during conversion. Please try again.')
+                    update_progress(1, 2, 'Error converting file', filename, 'error')
+                    os.remove(input_path)
+                    with conversion_progress_lock:
+                        error_msg = conversion_progress['error']
+                    return jsonify({'error': error_msg}), 500
+                
+                update_progress(2, 2, 'PDF created successfully! Preparing download...', filename, 'completed', display_total=1)
+                
+                # Read PDF and clean up
+                with open(output_pdf, 'rb') as f:
+                    pdf_data = f.read()
                 os.remove(input_path)
-                return jsonify({'error': conversion_progress['error']}), 500
-            
-            update_progress(2, 2, 'PDF created successfully! Preparing download...', filename, 'completed', display_total=1)
-            
-            # Read PDF and clean up
-            with open(output_pdf, 'rb') as f:
-                pdf_data = f.read()
-            os.remove(input_path)
-            os.remove(output_pdf)
-            
-            conversion_progress['status'] = 'completed'
-            update_progress(2, 2, 'PDF ready! Download starting...', display_total=1)
-            
-            return send_file(
-                io.BytesIO(pdf_data),
-                as_attachment=True,
-                download_name=pdf_name,
-                mimetype='application/pdf'
-            )
+                os.remove(output_pdf)
+                
+                set_progress_status('completed')
+                update_progress(2, 2, 'PDF ready! Download starting...', display_total=1)
+                
+                return send_file(
+                    io.BytesIO(pdf_data),
+                    as_attachment=True,
+                    download_name=pdf_name,
+                    mimetype='application/pdf'
+                )
+            else:
+                return jsonify({'error': 'An error occurred during conversion. Please try again.'}), 400
+        
+        # Handle multiple files case - BATCH CONVERSION
         else:
-            return jsonify({'error': 'An error occurred during conversion. Please try again.'}), 400
-    
-    # Handle multiple files case - BATCH CONVERSION
-    else:
-        temp_dir = tempfile.mkdtemp()
-        output_dir = tempfile.mkdtemp()
-        pdf_files = []
-        errors = []
+            temp_dir = tempfile.mkdtemp()
+            output_dir = tempfile.mkdtemp()
+            pdf_files = []
+            errors = []
         
         try:
             total_files = len(files)
-            conversion_progress['display_total'] = total_files
+            with conversion_progress_lock:
+                conversion_progress['display_total'] = total_files
             update_progress(0, total_files, 'Preparing files for PDF conversion...', display_total=total_files)
             
             # Save all files to temp_dir
@@ -610,11 +669,12 @@ def upload_file():
                                   'Preparing files for PDF conversion...', 
                                   filename, 'processing', display_total=total_files)
                 else:
-                    conversion_progress['status'] = 'error'
-                    conversion_progress['error'] = 'An error occurred during conversion. Please try again.'
+                    set_progress_status('error', error='An error occurred during conversion. Please try again.')
                     shutil.rmtree(temp_dir)
                     shutil.rmtree(output_dir)
-                    return jsonify({'error': conversion_progress['error']}), 400
+                    with conversion_progress_lock:
+                        error_msg = conversion_progress['error']
+                    return jsonify({'error': error_msg}), 400
             
             # Progress: 0-20% file prep, 20-90% PDF conversion, 90-100% collection
             update_progress(int(total_files * 0.2), total_files, 'Creating PDFs. This may take a moment...', display_total=total_files)
@@ -624,11 +684,12 @@ def upload_file():
             docx_files = [os.path.join(temp_dir, f) for f in os.listdir(temp_dir) if f.lower().endswith(('.docx', '.doc'))]
             
             if not docx_files:
-                conversion_progress['status'] = 'error'
-                conversion_progress['error'] = 'An error occurred during conversion. Please try again.'
+                set_progress_status('error', error='An error occurred during conversion. Please try again.')
                 shutil.rmtree(temp_dir)
                 shutil.rmtree(output_dir)
-                return jsonify({'error': conversion_progress['error']}), 400
+                with conversion_progress_lock:
+                    error_msg = conversion_progress['error']
+                return jsonify({'error': error_msg}), 400
             
             # Replace all hardcoded soffice_path assignments with platform-aware logic
             if platform.system() == "Windows":
@@ -756,7 +817,7 @@ def upload_file():
             update_progress(total_files, total_files, 'All PDFs created! Creating ZIP package...', display_total=total_files)
             # Set a small ETA for ZIP creation - estimate based on number of files
             estimated_zip_time = min(10, max(3, len(pdf_files) * 0.1))  # 0.1s per file, min 3s, max 10s
-            conversion_progress['eta_seconds'] = int(estimated_zip_time)
+            set_progress_status('converting', eta_seconds=int(estimated_zip_time))
             # Use lower compression for faster ZIP creation (compresslevel=1 is much faster than 6)
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as zip_file:
@@ -778,8 +839,7 @@ def upload_file():
             
             # Update progress one more time before marking as completed
             update_progress(total_files, total_files, 'Successfully created all PDFs! Download starting...', display_total=total_files)
-            conversion_progress['status'] = 'completed'
-            conversion_progress['eta_seconds'] = 0
+            set_progress_status('completed', eta_seconds=0)
             
             # Generate dynamic ZIP filename from first file (should be Excel file) - use same name with .zip extension
             if files and files[0] and files[0].filename:
@@ -798,11 +858,15 @@ def upload_file():
                 max_age=0  # Prevent caching
             )
         except Exception as e:
-            conversion_progress['status'] = 'error'
-            conversion_progress['error'] = 'An error occurred during conversion. Please try again.'
+            set_progress_status('error', error='An error occurred during conversion. Please try again.')
             shutil.rmtree(temp_dir)
             shutil.rmtree(output_dir)
-            return jsonify({'error': conversion_progress['error']}), 500
+            with conversion_progress_lock:
+                error_msg = conversion_progress['error']
+            return jsonify({'error': error_msg}), 500
+    finally:
+        # Always release semaphore, even if an exception occurs
+        conversion_semaphore.release()
 
 @main.route('/download/<filename>')
 def download_file(filename):
