@@ -1850,7 +1850,11 @@
 
             selectedFiles = [...selectedFiles, ...validFiles];
             displayFileList();
-            convertBtn.style.display = 'inline-block';
+            // Ensure file list and convert button are visible
+            if (selectedFiles.length > 0) {
+                fileList.style.display = 'block';
+                convertBtn.style.display = 'inline-block';
+            }
             announceToScreenReader(`${validFiles.length} files added. Total: ${selectedFiles.length} files`);
         }
 
@@ -1892,6 +1896,14 @@
                     fileItem.style.opacity = '1';
                 }, index * 50);
             });
+            
+            // Scroll smoothly to the end of the page to show the uploaded file
+            setTimeout(() => {
+                window.scrollTo({
+                    top: document.documentElement.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }, 150);
         }
 
         function removeFile(index) {
@@ -1903,6 +1915,8 @@
             const removedFile = selectedFiles[index];
             selectedFiles.splice(index, 1);
             displayFileList();
+            // Reset file input to allow re-uploading the same or different file
+            fileInput.value = '';
             announceToScreenReader(`Removed ${removedFile.name}`);
         }
 

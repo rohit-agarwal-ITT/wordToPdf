@@ -146,6 +146,11 @@ class WordProcessor:
                     # Method 3: Try to set the attribute directly if it exists
                     if hasattr(rPr, 'highlight'):
                         rPr.highlight = None
+                    # Method 4: Also check for highlight attribute on the element itself
+                    if hasattr(rPr, 'get'):
+                        highlight_attr = rPr.get(f'{namespace}highlight')
+                        if highlight_attr is not None:
+                            rPr.remove(highlight_attr)
         except Exception:
             pass  # If highlighting can't be removed, continue
     
@@ -160,6 +165,17 @@ class WordProcessor:
             except Exception:
                 pass
     
+    def _remove_all_highlighting_from_paragraph(self, paragraph):
+        """
+        Remove highlighting from all runs in a paragraph.
+        This is a comprehensive cleanup method to ensure no highlighting remains.
+        """
+        for run in paragraph.runs:
+            try:
+                self._remove_highlighting(run)
+            except Exception:
+                pass
+    
     def _replace_placeholder_in_paragraph(self, paragraph, placeholder, value):
         """
         Replace a placeholder in a paragraph, handling cases where the placeholder
@@ -171,14 +187,24 @@ class WordProcessor:
         if placeholder_text not in paragraph.text:
             return False
         
+        # Convert value to string, handling None and empty values
+        replacement_value = str(value) if value is not None else ''
+        
         # First, try simple replacement if placeholder is in a single run
         for run in paragraph.runs:
             if placeholder_text in run.text:
                 # Remove highlighting BEFORE replacement to ensure it's gone
                 self._remove_highlighting(run)
-                run.text = run.text.replace(placeholder_text, str(value))
+                # Explicitly set highlight_color to None before text replacement
+                if hasattr(run.font, 'highlight_color'):
+                    run.font.highlight_color = None
+                # Replace the placeholder with the value
+                run.text = run.text.replace(placeholder_text, replacement_value)
                 # Remove highlighting again AFTER replacement to be thorough
                 self._remove_highlighting(run)
+                # One more explicit check after text change
+                if hasattr(run.font, 'highlight_color'):
+                    run.font.highlight_color = None
                 return True
         
         # Placeholder is split across multiple runs - need to handle this
@@ -212,14 +238,24 @@ class WordProcessor:
         if start_run_idx is None or end_run_idx is None:
             return False
         
+        # Convert value to string, handling None and empty values
+        replacement_value = str(value) if value is not None else ''
+        
         # Safety check: if start and end are the same, it should have been caught above
         # But handle it just in case
         if start_run_idx == end_run_idx:
             # Placeholder should be in a single run - try simple replacement
             if start_run_idx < len(paragraph.runs):
-                paragraph.runs[start_run_idx].text = paragraph.runs[start_run_idx].text.replace(placeholder_text, str(value))
-                # Remove highlighting/background color
+                # Remove highlighting before replacement
                 self._remove_highlighting(paragraph.runs[start_run_idx])
+                if hasattr(paragraph.runs[start_run_idx].font, 'highlight_color'):
+                    paragraph.runs[start_run_idx].font.highlight_color = None
+                # Replace the placeholder
+                paragraph.runs[start_run_idx].text = paragraph.runs[start_run_idx].text.replace(placeholder_text, replacement_value)
+                # Remove highlighting/background color after replacement
+                self._remove_highlighting(paragraph.runs[start_run_idx])
+                if hasattr(paragraph.runs[start_run_idx].font, 'highlight_color'):
+                    paragraph.runs[start_run_idx].font.highlight_color = None
                 return True
             return False
         
@@ -229,7 +265,7 @@ class WordProcessor:
         
         # Now we need to reconstruct the paragraph
         # Save the original paragraph text with replacement
-        new_paragraph_text = text_before + str(value) + text_after
+        new_paragraph_text = text_before + replacement_value + text_after
         
         # Calculate positions within individual runs
         pos = 0
@@ -258,18 +294,26 @@ class WordProcessor:
         
         # Replace the placeholder: update start run, remove middle runs, update/remove end run
         if start_run_idx < len(paragraph.runs):
+            # Remove highlighting BEFORE updating text
+            self._remove_highlighting(paragraph.runs[start_run_idx])
+            # Explicitly set highlight_color to None before text replacement
+            if hasattr(paragraph.runs[start_run_idx].font, 'highlight_color'):
+                paragraph.runs[start_run_idx].font.highlight_color = None
             # Update start run with text before + replacement value
-            paragraph.runs[start_run_idx].text = start_run_text_before + str(value)
+            # Ensure we're using replacement_value (handles None/empty properly)
+            new_text = start_run_text_before + replacement_value
+            paragraph.runs[start_run_idx].text = new_text
+            # Verify the text was set correctly (safeguard)
+            if paragraph.runs[start_run_idx].text != new_text:
+                # If text wasn't set correctly, try setting it again
+                paragraph.runs[start_run_idx].text = new_text
             # Remove highlighting/background color from the run (again, to be sure)
             self._remove_highlighting(paragraph.runs[start_run_idx])
+            # One more explicit check after text change
+            if hasattr(paragraph.runs[start_run_idx].font, 'highlight_color'):
+                paragraph.runs[start_run_idx].font.highlight_color = None
         
-        # Remove middle runs (between start and end, exclusive)
-        runs_to_remove = list(range(start_run_idx + 1, end_run_idx))
-        for i in reversed(runs_to_remove):
-            if i < len(paragraph.runs):
-                paragraph._element.remove(paragraph.runs[i]._element)
-        
-        # Handle end run - save formatting before removing runs
+        # Handle end run - save formatting BEFORE removing runs (important!)
         orig_end_run_formatting = None
         orig_end_run_highlight = None
         if end_run_idx < len(paragraph.runs):
@@ -281,20 +325,51 @@ class WordProcessor:
             }
             orig_end_run_highlight = orig_end_run.font.highlight_color
         
+        # Remove middle runs (between start and end, exclusive)
+        runs_to_remove = list(range(start_run_idx + 1, end_run_idx))
+        for i in reversed(runs_to_remove):
+            if i < len(paragraph.runs):
+                paragraph._element.remove(paragraph.runs[i]._element)
+        
         # Handle end run after removals
         if end_run_idx > start_run_idx:
             # After removing middle runs, the end_run_idx has shifted
             remaining_runs_count = len(paragraph.runs)
             expected_end_idx = end_run_idx - len(runs_to_remove)
             
-            if expected_end_idx < remaining_runs_count and expected_end_idx > start_run_idx:
-                # Update the end run with remaining text
-                paragraph.runs[expected_end_idx].text = end_run_text_after
-                # Remove highlighting if this run had part of the placeholder
-                self._remove_highlighting(paragraph.runs[expected_end_idx])
+            # Ensure we have valid indices
+            if expected_end_idx < remaining_runs_count and expected_end_idx >= start_run_idx:
+                # Check if the end run still exists and is different from start run
+                if expected_end_idx != start_run_idx and expected_end_idx < len(paragraph.runs):
+                    # Remove highlighting BEFORE updating text
+                    self._remove_highlighting(paragraph.runs[expected_end_idx])
+                    # Explicitly set highlight_color to None before text replacement
+                    if hasattr(paragraph.runs[expected_end_idx].font, 'highlight_color'):
+                        paragraph.runs[expected_end_idx].font.highlight_color = None
+                    # Update the end run with remaining text
+                    paragraph.runs[expected_end_idx].text = end_run_text_after
+                    # Remove highlighting if this run had part of the placeholder
+                    self._remove_highlighting(paragraph.runs[expected_end_idx])
+                    # One more explicit check after text change
+                    if hasattr(paragraph.runs[expected_end_idx].font, 'highlight_color'):
+                        paragraph.runs[expected_end_idx].font.highlight_color = None
+                elif end_run_text_after:
+                    # End run was merged or removed, need to add a new run for remaining text
+                    # Use formatting from the original end run if we saved it
+                    new_run = paragraph.add_run(end_run_text_after)
+                    if orig_end_run_formatting:
+                        if orig_end_run_formatting['bold'] is not None:
+                            new_run.bold = orig_end_run_formatting['bold']
+                        if orig_end_run_formatting['italic'] is not None:
+                            new_run.italic = orig_end_run_formatting['italic']
+                        if orig_end_run_formatting['font_size'] is not None:
+                            new_run.font.size = orig_end_run_formatting['font_size']
+                    # Ensure no highlighting on new run - explicitly set to None
+                    if hasattr(new_run.font, 'highlight_color'):
+                        new_run.font.highlight_color = None
+                    self._remove_highlighting(new_run)
             elif end_run_text_after:
-                # Need to add a new run for the remaining text
-                # Use formatting from the original end run if we saved it
+                # End run index is invalid, add a new run for remaining text
                 new_run = paragraph.add_run(end_run_text_after)
                 if orig_end_run_formatting:
                     if orig_end_run_formatting['bold'] is not None:
@@ -303,7 +378,9 @@ class WordProcessor:
                         new_run.italic = orig_end_run_formatting['italic']
                     if orig_end_run_formatting['font_size'] is not None:
                         new_run.font.size = orig_end_run_formatting['font_size']
-                # Ensure no highlighting on new run
+                # Ensure no highlighting on new run - explicitly set to None
+                if hasattr(new_run.font, 'highlight_color'):
+                    new_run.font.highlight_color = None
                 self._remove_highlighting(new_run)
         
         return True
@@ -322,6 +399,8 @@ class WordProcessor:
         for paragraph in doc.paragraphs:
             for key, value in data.items():
                 self._replace_placeholder_in_paragraph(paragraph, key, value)
+            # Final cleanup: Remove any remaining highlighting from all runs in this paragraph
+            self._remove_all_highlighting_from_paragraph(paragraph)
         
         # Replace in tables
         for table in doc.tables:
@@ -330,5 +409,18 @@ class WordProcessor:
                     for paragraph in cell.paragraphs:
                         for key, value in data.items():
                             self._replace_placeholder_in_paragraph(paragraph, key, value)
+                        # Final cleanup: Remove any remaining highlighting from all runs in this paragraph
+                        self._remove_all_highlighting_from_paragraph(paragraph)
+        
+        # Final comprehensive pass: Remove highlighting from ALL paragraphs and runs
+        # This ensures no highlighting remains anywhere in the document, even if it wasn't part of a placeholder
+        for paragraph in doc.paragraphs:
+            self._remove_all_highlighting_from_paragraph(paragraph)
+        
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for paragraph in cell.paragraphs:
+                        self._remove_all_highlighting_from_paragraph(paragraph)
         
         doc.save(output_path) 
