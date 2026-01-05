@@ -184,16 +184,35 @@ def allowed_file(filename):
     # Only allow Excel files (.xlsx)
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'xlsx'
 
-def get_template_path(location_value):
+def get_template_path(location_value, designation_value=None):
     """
-    Get the appropriate template path based on location.
+    Get the appropriate template path based on designation and location.
     
     Args:
         location_value: The location value from Excel (e.g., 'Jaipur', 'Bangalore')
+        designation_value: The designation value from Excel (e.g., 'Trainee', 'Software Engineer', 'Junior Software Engineer')
     
     Returns:
         Path to the appropriate template file
     """
+    # Normalize designation value (case-insensitive, strip whitespace)
+    if designation_value:
+        designation = str(designation_value).strip().lower()
+        
+        # Check if designation is Trainee (case-insensitive)
+        if 'trainee' in designation:
+            # Trainee template is not location-specific
+            template_name = 'sample_document_for_trainee_placeholder.docx'
+            template_path = os.path.join('samples', template_name)
+            
+            # Fallback to Jaipur template if trainee template doesn't exist
+            if not os.path.exists(template_path):
+                template_path = os.path.join('samples', 'sample_document_for_placeholder_jaipur.docx')
+            
+            return template_path
+    
+    # For non-Trainee designations (Software Engineer, Junior Software Engineer, etc.)
+    # Use location-based templates
     # Normalize location value (case-insensitive, strip whitespace)
     if location_value:
         location = str(location_value).strip().lower()
@@ -218,7 +237,7 @@ def get_template_path(location_value):
 
 def format_date_field(value, field_name):
     """
-    Format date fields (Date of Joining, Effective Date) to DD-MonthName-YYYY format.
+    Format date fields (Date of Joining, Effective Date, Date) to DD-MonthName-YYYY format.
     Handles input formats: '2024-07-01' (ISO) or '6/30/2025' (US format).
     
     Args:
@@ -228,9 +247,12 @@ def format_date_field(value, field_name):
     Returns:
         Formatted date string like '05-August-2025' or original value if not a date field or parsing fails
     """
-    # Only format specific date fields
-    date_fields = ['Date of Joining', 'Effective Date']
-    if field_name not in date_fields:
+    # Only format specific date fields (case-insensitive matching)
+    date_fields = ['Date of Joining', 'Effective Date', 'Date']
+    field_name_normalized = str(field_name).strip()
+    # Check if field_name matches any date field (case-insensitive)
+    is_date_field = any(field_name_normalized.lower() == df.lower() for df in date_fields)
+    if not is_date_field:
         return str(value)
     
     # If value is already a datetime object (pandas sometimes reads dates as datetime)
@@ -384,55 +406,99 @@ def upload_file():
             
             def generate_docx(row_tuple):
                 i, row = row_tuple
-                # Process data with date formatting for specific fields
-                data = {}
-                for col in df.columns:
-                    col_str = str(col)
-                    value = row[col]
-                    # Format date fields appropriately
-                    formatted_value = format_date_field(value, col_str)
-                    data[col_str] = formatted_value
-                
-                # Get location value to determine which template to use
-                # Primary: Look for "Place of Joining" column (exact match, case-insensitive)
-                location_value = None
-                for col in df.columns:
-                    col_str = str(col).strip()
-                    # Check for exact match with "Place of Joining" (case-insensitive)
-                    if col_str.lower() == 'place of joining':
-                        location_value = data.get(col_str)
-                        break
-                
-                # Fallback: Try common location column names (case-insensitive)
-                if location_value is None:
-                    location_column_names = ['Location', 'location', 'LOCATION', 'City', 'city', 'CITY', 'Location Name', 'location name', 'Place of Joining', 'place of joining']
-                    for loc_col in location_column_names:
-                        if loc_col in data:
-                            location_value = data[loc_col]
-                            break
-                
-                # If still not found, try to find any column containing 'location', 'city', or 'place'
-                if location_value is None:
+                try:
+                    # Process data with date formatting for specific fields
+                    data = {}
                     for col in df.columns:
-                        col_lower = str(col).lower()
-                        if 'location' in col_lower or 'city' in col_lower or ('place' in col_lower and 'joining' in col_lower):
-                            location_value = data.get(str(col))
+                        col_str = str(col)
+                        value = row[col]
+                        # Handle NaN/None values from pandas
+                        if pd.isna(value):
+                            value = ''
+                        # Format date fields appropriately
+                        formatted_value = format_date_field(value, col_str)
+                        data[col_str] = formatted_value
+                    
+                    # Get location value to determine which template to use
+                    # Primary: Look for "Place of Joining" column (exact match, case-insensitive)
+                    location_value = None
+                    for col in df.columns:
+                        col_str = str(col).strip()
+                        # Check for exact match with "Place of Joining" (case-insensitive)
+                        if col_str.lower() == 'place of joining':
+                            location_value = data.get(col_str)
                             break
-                
-                # Get the appropriate template based on location
-                word_template = get_template_path(location_value)
-                
-                docx_name = f"{data.get('Name', 'Candidate')}_{i+1}.docx"
-                docx_path = os.path.join(temp_dir, docx_name)
-                wp = WordProcessor()  # Create a new instance per row/thread
-                wp.fill_placeholders(word_template, docx_path, data)
-                return docx_path
+                    
+                    # Fallback: Try common location column names (case-insensitive)
+                    if location_value is None:
+                        location_column_names = ['Location', 'location', 'LOCATION', 'City', 'city', 'CITY', 'Location Name', 'location name', 'Place of Joining', 'place of joining']
+                        for loc_col in location_column_names:
+                            if loc_col in data:
+                                location_value = data[loc_col]
+                                break
+                    
+                    # If still not found, try to find any column containing 'location', 'city', or 'place'
+                    if location_value is None:
+                        for col in df.columns:
+                            col_lower = str(col).lower()
+                            if 'location' in col_lower or 'city' in col_lower or ('place' in col_lower and 'joining' in col_lower):
+                                location_value = data.get(str(col))
+                                break
+                    
+                    # Get designation value to determine which template to use
+                    # Primary: Look for "Designation" column (exact match, case-insensitive)
+                    designation_value = None
+                    for col in df.columns:
+                        col_str = str(col).strip()
+                        # Check for exact match with "Designation" (case-insensitive)
+                        if col_str.lower() == 'designation':
+                            designation_value = data.get(col_str)
+                            break
+                    
+                    # Fallback: Try common designation column names (case-insensitive)
+                    if designation_value is None:
+                        designation_column_names = ['Designation', 'designation', 'DESIGNATION', 'Role', 'role', 'ROLE', 'Job Title', 'job title']
+                        for desig_col in designation_column_names:
+                            if desig_col in data:
+                                designation_value = data[desig_col]
+                                break
+                    
+                    # If still not found, try to find any column containing 'designation' or 'role'
+                    if designation_value is None:
+                        for col in df.columns:
+                            col_lower = str(col).lower()
+                            if 'designation' in col_lower or ('role' in col_lower and 'title' not in col_lower):
+                                designation_value = data.get(str(col))
+                                break
+                    
+                    # Get the appropriate template based on designation and location
+                    word_template = get_template_path(location_value, designation_value)
+                    
+                    docx_name = f"{data.get('Name', 'Candidate')}_{i+1}.docx"
+                    docx_path = os.path.join(temp_dir, docx_name)
+                    wp = WordProcessor()  # Create a new instance per row/thread
+                    wp.fill_placeholders(word_template, docx_path, data)
+                    return docx_path
+                except Exception as e:
+                    # Log the actual error for debugging
+                    import traceback
+                    error_msg = f"Error generating DOCX for row {i+1}: {str(e)}\n{traceback.format_exc()}"
+                    print(error_msg)  # Print to console/log
+                    raise Exception(f"Error processing row {i+1}: {str(e)}")
             docx_files = []
             with ThreadPoolExecutor(max_workers=4) as executor:
                 futures = {executor.submit(generate_docx, (i, row)): i for i, row in df.iterrows()}
                 for idx, future in enumerate(as_completed(futures)):
-                    docx_path = future.result()
-                    docx_files.append(docx_path)
+                    try:
+                        docx_path = future.result()
+                        docx_files.append(docx_path)
+                    except Exception as e:
+                        # Log the error and continue with other rows
+                        import traceback
+                        error_msg = f"Error in future result: {str(e)}\n{traceback.format_exc()}"
+                        print(error_msg)
+                        # Re-raise to stop processing
+                        raise Exception(f"Error generating appointment letter: {str(e)}")
                     # Progress for DOCX generation: 0 to 50% - but show as PDF preparation
                     # Map progress to show as if we're creating PDFs directly
                     progress_pct = (idx + 1) / total_rows * 0.3  # First 30% is preparation
