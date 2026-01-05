@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, jsonify, send_file, current_app
 import os
 import uuid
+import re
 from werkzeug.utils import secure_filename
 from app.utils.word_processor import WordProcessor
 from app.utils.pdf_generator import PDFGenerator
@@ -532,7 +533,13 @@ def upload_file():
             pdfs_collected = 0
             for idx, docx_file in enumerate(docx_files):
                 base = os.path.splitext(os.path.basename(docx_file))[0]
-                pdf_name = f"{base}-Appointment_letter.pdf"
+                # Extract name by removing the _number suffix (e.g., "John Doe_1" -> "John Doe")
+                name_match = re.match(r'^(.+?)_\d+$', base)
+                if name_match:
+                    name = name_match.group(1)
+                else:
+                    name = base  # Fallback if pattern doesn't match
+                pdf_name = f"Appointment letter and Training Agreement- {name}.pdf"
                 pdf_path = os.path.join(output_dir, base + '.pdf')
                 if os.path.exists(pdf_path):
                     pdf_files.append((pdf_path, pdf_name))
@@ -786,7 +793,13 @@ def upload_file():
             pdfs_found = 0
             for idx, docx_file in enumerate(docx_files):
                 base = os.path.splitext(os.path.basename(docx_file))[0]
-                pdf_name = f"{base}-Appointment_letter.pdf"
+                # Extract name by removing the _number suffix (e.g., "John Doe_1" -> "John Doe")
+                name_match = re.match(r'^(.+?)_\d+$', base)
+                if name_match:
+                    name = name_match.group(1)
+                else:
+                    name = base  # Fallback if pattern doesn't match
+                pdf_name = f"Appointment letter and Training Agreement- {name}.pdf"
                 pdf_path = os.path.join(output_dir, base + '.pdf')
                 filename = os.path.basename(docx_file)
                 if os.path.exists(pdf_path):
