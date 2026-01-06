@@ -362,6 +362,12 @@ def get_progress():
     except Exception as e:
         # Ensure we always return JSON, even on errors
         current_app.logger.error(f'Error getting progress: {e}', exc_info=True)
+        # Try to get conversion_id even on error to help frontend filter
+        try:
+            with conversion_progress_lock:
+                error_conversion_id = conversion_progress.get('conversion_id')
+        except Exception:
+            error_conversion_id = None
         return jsonify({
             'status': 'error',
             'error': 'Failed to retrieve progress information',
@@ -369,13 +375,18 @@ def get_progress():
             'total': 0,
             'percentage': 0,
             'message': 'Error retrieving progress',
-            'files': []
+            'files': [],
+            'conversion_id': error_conversion_id  # Include conversion_id even on error
         }), 500
 
 @main.route('/upload', methods=['POST'])
 def upload_file():
     """Handle file upload and conversion with thread safety and concurrency limits"""
     global conversion_progress
+    
+    # Record request start time for timeout tracking
+    request_start_time = time.time()
+    request_timeout = 600  # 10 minutes max request time
     
     # Acquire semaphore to limit concurrent conversions
     # If limit is reached, return 503 Service Unavailable
@@ -442,11 +453,22 @@ def upload_file():
         if not files or files[0].filename == '' or files[0].filename is None:
             return jsonify({'error': 'No files selected. Please choose an Excel file (.xlsx) to upload.'}), 400
         
-        # Validate that only Excel files are uploaded
+        # Validate that only Excel files are uploaded and check file size early
         for file in files:
             if file and file.filename:
                 if not allowed_file(file.filename):
                     return jsonify({'error': f'Invalid file type: {file.filename}. Only Excel files (.xlsx) are allowed.'}), 400
+                # Check file size early to prevent large uploads from timing out
+                try:
+                    # Seek to end to get file size
+                    file.seek(0, 2)  # Seek to end
+                    file_size = file.tell()
+                    file.seek(0)  # Reset to beginning
+                    if file_size > 100 * 1024 * 1024:  # 100MB
+                        return jsonify({'error': 'File too large. Maximum size is 100MB.'}), 413
+                except Exception as size_check_error:
+                    current_app.logger.warning(f'Error checking file size: {size_check_error}')
+                    # Continue if we can't check size - let the server handle it
         
         # Excel to Word to PDF batch logic
         if len(files) == 1 and files[0].filename and files[0].filename.lower().endswith('.xlsx'):
@@ -794,14 +816,27 @@ def upload_file():
                 # Update progress one more time before marking as completed
                 update_progress(total_steps, total_steps, 'Successfully created all PDF appointment letters! Download starting...', display_total=total_rows)
                 set_progress_status('completed', eta_seconds=0)
+                # Check timeout before sending file
+                if time.time() - request_start_time > request_timeout:
+                    current_app.logger.error(f'Request timeout before sending file: {request_id}')
+                    set_progress_status('error', error='Request timeout. Please try again.')
+                    return jsonify({'error': 'Request timeout. The conversion took too long. Please try again with a smaller file.'}), 504
+                
                 # Send file with explicit timeout and chunk size for better performance
-                return send_file(
-                    zip_buffer,
-                    as_attachment=True,
-                    download_name=zip_filename,
-                    mimetype='application/zip',
-                    max_age=0  # Prevent caching
-                )
+                # Use conditional response to prevent timeouts
+                try:
+                    return send_file(
+                        zip_buffer,
+                        as_attachment=True,
+                        download_name=zip_filename,
+                        mimetype='application/zip',
+                        max_age=0,  # Prevent caching
+                        conditional=True  # Enable conditional responses (ETag, 304)
+                    )
+                except Exception as send_error:
+                    current_app.logger.error(f'Error sending file: {send_error}', exc_info=True)
+                    set_progress_status('error', error='Error sending file. Please try again.')
+                    return jsonify({'error': 'Error sending file. Please try again.'}), 500
             
             except Exception as e:  # Main exception handler for Excel conversion
                 current_app.logger.error(f'Excel conversion error: {e}', exc_info=True)
@@ -1079,14 +1114,27 @@ def upload_file():
             else:
                 zip_filename = 'Appointment_letters.zip'
             
+            # Check timeout before sending file
+            if time.time() - request_start_time > request_timeout:
+                current_app.logger.error(f'Request timeout before sending file: {request_id}')
+                set_progress_status('error', error='Request timeout. Please try again.')
+                return jsonify({'error': 'Request timeout. The conversion took too long. Please try again with a smaller file.'}), 504
+            
             # Send file with explicit timeout and chunk size for better performance
-            return send_file(
-                zip_buffer,
-                as_attachment=True,
-                download_name=zip_filename,
-                mimetype='application/zip',
-                max_age=0  # Prevent caching
-            )
+            # Use conditional response to prevent timeouts
+            try:
+                return send_file(
+                    zip_buffer,
+                    as_attachment=True,
+                    download_name=zip_filename,
+                    mimetype='application/zip',
+                    max_age=0,  # Prevent caching
+                    conditional=True  # Enable conditional responses (ETag, 304)
+                )
+            except Exception as send_error:
+                current_app.logger.error(f'Error sending file: {send_error}', exc_info=True)
+                set_progress_status('error', error='Error sending file. Please try again.')
+                return jsonify({'error': 'Error sending file. Please try again.'}), 500
         except Exception as e:
             current_app.logger.error(f'Upload error: {e}', exc_info=True)
             set_progress_status('error', error='An error occurred during conversion. Please try again.')
@@ -1103,6 +1151,20 @@ def upload_file():
             with conversion_progress_lock:
                 error_msg = conversion_progress.get('error', 'An error occurred during conversion. Please try again.')
             return jsonify({'error': error_msg}), 500
+    except Exception as outer_error:
+        # Catch any unhandled exceptions at the top level to prevent 502 errors
+        # This ensures we always return a proper response instead of letting exceptions bubble up
+        current_app.logger.error(f'Unhandled error in upload_file: {outer_error}', exc_info=True)
+        try:
+            set_progress_status('error', error='An unexpected error occurred. Please try again.')
+        except Exception:
+            pass  # If we can't set status, continue anyway
+        # Try to return a proper error response instead of letting it bubble up
+        try:
+            return jsonify({'error': 'An unexpected error occurred during conversion. Please try again.'}), 500
+        except Exception:
+            # If we can't return a response, at least log it
+            current_app.logger.error('Failed to return error response - this may cause 502 error')
     finally:
         # Always release semaphore, even if an exception occurs
         if semaphore_acquired:

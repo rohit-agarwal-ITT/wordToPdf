@@ -1944,12 +1944,28 @@
 
             // Use displayTotal consistently for file count display
             // Priority: displayTotal > files.length > selectedFiles.length
-            let fileCountForDisplay = progressData.display_total || progressData.total || 0;
-            if (fileCountForDisplay === 0) {
-                if (progressData.files && progressData.files.length > 0) {
+            // IMPORTANT: For Excel conversions, display_total is set by backend and should be trusted
+            // Don't fall back to selectedFiles.length for Excel (which would be 1, not the row count)
+            let fileCountForDisplay = progressData.display_total;
+            
+            // Only use fallback if display_total is not set AND we're not in a converting state
+            // This prevents showing wrong count (1 file) for Excel conversions
+            if (!fileCountForDisplay || fileCountForDisplay === 0) {
+                // For Excel conversions, wait for backend to set display_total
+                // Don't use selectedFiles.length as it's 1 (the Excel file), not the row count
+                if (progressData.status === 'converting' && selectedFiles.length === 1 && 
+                    selectedFiles[0] && selectedFiles[0].name.toLowerCase().endsWith('.xlsx')) {
+                    // Excel conversion - wait for backend to set display_total
+                    // Don't update file count yet, keep showing 0/0 or last known value
+                    fileCountForDisplay = fileCountForDisplay || 0;
+                } else if (progressData.files && progressData.files.length > 0) {
+                    // Use files array length for batch conversions
                     fileCountForDisplay = progressData.files.length;
-                } else if (selectedFiles.length > 0) {
+                } else if (selectedFiles.length > 0 && progressData.status !== 'converting') {
+                    // Only use selectedFiles.length if not actively converting (initial state)
                     fileCountForDisplay = selectedFiles.length;
+                } else {
+                    fileCountForDisplay = 0;
                 }
             }
             
@@ -1971,16 +1987,25 @@
             
             // Ensure displayCurrent doesn't exceed fileCountForDisplay
             const finalDisplayCurrent = Math.min(displayCurrent, fileCountForDisplay);
-            progressFiles.textContent = `${finalDisplayCurrent}/${fileCountForDisplay}`;
+            
+            // Only update file count display if we have a valid count
+            // For Excel, wait until display_total is set by backend
+            if (fileCountForDisplay > 0) {
+                progressFiles.textContent = `${finalDisplayCurrent}/${fileCountForDisplay}`;
+            } else {
+                // Keep showing last known value or 0/0
+                progressFiles.textContent = `${finalDisplayCurrent}/0`;
+            }
 
             // Calculate percentage based on user-facing progress (display_current/display_total)
             // This ensures the progress bar matches the file count display
             let percentage = 0;
-            if (fileCountForDisplay > 0 && finalDisplayCurrent > 0) {
+            if (fileCountForDisplay > 0) {
                 // Calculate percentage from display_current/display_total for accurate user-facing progress
+                // Allow 0% at the start (when display_current is 0 but display_total is set)
                 percentage = Math.min(100, Math.round((finalDisplayCurrent / fileCountForDisplay) * 100));
-            } else if (progressData.percentage !== undefined && fileCountForDisplay === 0) {
-                // Fallback to backend percentage only if display values are not available
+            } else if (progressData.percentage !== undefined) {
+                // Fallback to backend percentage if display_total is not available yet
                 percentage = progressData.percentage;
             }
             
@@ -2255,31 +2280,50 @@
                             }
                             const progressData = await safeJsonParse(progressResponse);
                             
+                            // CRITICAL: Only process progress data if conversion_id matches current conversion
+                            // This prevents switching between old and new conversion data
+                            
                             // Check if this is a new conversion (conversion_id changed)
-                            // Only treat as new if:
-                            // 1. We have a conversion_id in the response
-                            // 2. It's different from what we're tracking
-                            // 3. We're not in the middle of a conversion (status is 'converting' or 'idle', not 'completed')
-                            if (progressData.conversion_id && 
-                                progressData.conversion_id !== currentConversionId &&
-                                progressData.status !== 'completed') {
-                                // New conversion detected - reset tracking variables
+                            if (progressData.conversion_id && progressData.conversion_id !== currentConversionId) {
+                                // New conversion detected - reset everything
                                 const oldConversionId = currentConversionId;
                                 currentConversionId = progressData.conversion_id;
                                 lastProgressPercentage = 0;
                                 lastDisplayCurrent = 0;
                                 fileStatusMap = {};
                                 console.log('New conversion detected:', currentConversionId, '(previous:', oldConversionId, ')');
+                                // Reset UI to show fresh start
+                                progressBar.style.width = '0%';
+                                progressPercentage.textContent = '0%';
+                                progressFiles.textContent = '0/0';
+                                progressETA.textContent = '--';
                             }
                             
-                            // Ignore 'completed' status if conversion_id doesn't match (stale data from previous conversion)
+                            // CRITICAL: Only process progress data if conversion_id matches
+                            // Ignore all data from previous conversions
+                            if (currentConversionId !== null && progressData.conversion_id !== currentConversionId) {
+                                // This is data from a previous conversion - ignore it completely
+                                console.log('Ignoring stale progress data - conversion_id mismatch:', 
+                                    'current:', currentConversionId, 'received:', progressData.conversion_id);
+                                return; // Don't process this data at all
+                            }
+                            
+                            // If we don't have a currentConversionId yet, but we have a conversion_id in the response,
+                            // set it as the current one (first poll scenario)
+                            if (currentConversionId === null && progressData.conversion_id) {
+                                currentConversionId = progressData.conversion_id;
+                                lastProgressPercentage = 0;
+                                lastDisplayCurrent = 0;
+                                fileStatusMap = {};
+                            }
+                            
+                            // Now process the progress data (we know it's for the current conversion)
                             if (progressData.status === 'completed') {
                                 // Only stop polling if this completion is for the current conversion
                                 // Check: conversion_id matches AND display_total > 0 (indicates real completion, not stale reset)
-                                const isCurrentConversion = progressData.conversion_id === currentConversionId;
                                 const hasValidData = progressData.display_total > 0 || progressData.total > 0;
                                 
-                                if (isCurrentConversion && hasValidData) {
+                                if (hasValidData) {
                                     // Valid completion for current conversion
                                     clearInterval(progressInterval);
                                     updateProgressDashboard({
@@ -2287,28 +2331,12 @@
                                         percentage: 100,
                                         message: 'Conversion complete! Downloading...'
                                     });
-                                } else if (currentConversionId === null && hasValidData) {
-                                    // First poll and we see completed with valid data - might be from previous conversion
-                                    // Don't stop polling, wait for new conversion to start
-                                    console.log('Ignoring completed status on first poll - waiting for new conversion');
                                 } else {
-                                    // Stale 'completed' status from previous conversion - ignore and keep polling
-                                    console.log('Ignoring stale completed status - conversion_id mismatch or invalid data');
+                                    // Completed but no valid data - might be a reset, keep polling
+                                    console.log('Completed status but no valid data - continuing to poll');
                                 }
                             } else if (progressData.status === 'converting') {
-                                // Update currentConversionId if we see a new one
-                                if (progressData.conversion_id && progressData.conversion_id !== currentConversionId) {
-                                    // New conversion detected - reset everything
-                                    currentConversionId = progressData.conversion_id;
-                                    lastProgressPercentage = 0;
-                                    lastDisplayCurrent = 0;
-                                    fileStatusMap = {};
-                                    console.log('New conversion detected during polling:', currentConversionId);
-                                    // Reset UI to show fresh start
-                                    progressBar.style.width = '0%';
-                                    progressPercentage.textContent = '0%';
-                                    progressFiles.textContent = '0/0';
-                                }
+                                // Always update dashboard when status is converting and conversion_id matches
                                 updateProgressDashboard(progressData);
                                 // Update file statuses
                                 if (progressData.files) {
@@ -2317,18 +2345,13 @@
                                     });
                                 }
                             } else if (progressData.status === 'error') {
-                                // Only stop on error if it's for the current conversion
-                                if (progressData.conversion_id === currentConversionId || currentConversionId === null) {
-                                    clearInterval(progressInterval);
-                                    throw new Error(progressData.error || 'Conversion failed');
-                                } else {
-                                    // Stale error from previous conversion - ignore
-                                    console.log('Ignoring stale error from previous conversion');
-                                }
+                                // Since we already filtered by conversion_id above, this should be our conversion
+                                clearInterval(progressInterval);
+                                throw new Error(progressData.error || 'Conversion failed');
                             } else if (progressData.status === 'idle') {
                                 // If status is idle, it might be a reset - keep polling but don't update UI
-                                // Only update if we have a valid conversion_id
-                                if (progressData.conversion_id && progressData.conversion_id === currentConversionId) {
+                                // Only update if we have a valid conversion_id that matches
+                                if (progressData.conversion_id === currentConversionId) {
                                     // This is our conversion in idle state - might be initializing
                                     updateProgressDashboard(progressData);
                                 }
