@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import os
 import logging
 from logging.handlers import RotatingFileHandler
@@ -38,7 +38,7 @@ def create_app():
         app.logger.setLevel(logging.INFO)
         app.logger.info('Word to PDF Converter startup')
     
-    # Global error handlers
+    # Global error handlers - ensure all errors return JSON
     @app.errorhandler(413)
     def too_large(e):
         return jsonify({'error': 'File too large. Maximum size is 100MB.'}), 413
@@ -52,10 +52,46 @@ def create_app():
         app.logger.error(f'Server Error: {e}')
         return jsonify({'error': 'Internal server error. Please try again.'}), 500
     
+    @app.errorhandler(502)
+    def bad_gateway(e):
+        app.logger.error(f'Bad Gateway Error: {e}')
+        return jsonify({'error': 'Server temporarily unavailable. Please try again in a moment.'}), 502
+    
+    @app.errorhandler(503)
+    def service_unavailable(e):
+        app.logger.error(f'Service Unavailable: {e}')
+        return jsonify({'error': 'Service temporarily unavailable. Please try again in a moment.'}), 503
+    
+    @app.errorhandler(504)
+    def gateway_timeout(e):
+        app.logger.error(f'Gateway Timeout: {e}')
+        return jsonify({'error': 'Request timed out. The conversion may be taking longer than expected. Please try again with smaller files.'}), 504
+    
     @app.errorhandler(Exception)
     def handle_exception(e):
-        app.logger.error(f'Unhandled Exception: {e}')
+        app.logger.error(f'Unhandled Exception: {e}', exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+    
+    # Middleware to ensure JSON responses for API routes
+    @app.after_request
+    def ensure_json_response(response):
+        """Ensure API routes return JSON, even on errors"""
+        # Only apply to routes that should return JSON (not static files or templates)
+        if request.path.startswith('/upload') or request.path.startswith('/progress'):
+            # If response is not already JSON and is an error, convert it
+            if response.status_code >= 400 and not response.is_json:
+                try:
+                    # Try to get the response data
+                    data = response.get_data(as_text=True)
+                    # If it's HTML or plain text, convert to JSON
+                    if data and (data.strip().startswith('<') or not data.strip().startswith('{')):
+                        return jsonify({
+                            'error': f'Server error: {response.status_code}',
+                            'details': data[:200] if len(data) > 200 else data
+                        }), response.status_code
+                except Exception:
+                    pass
+        return response
     
     # Cleanup function for temp files
     def cleanup_temp_files():

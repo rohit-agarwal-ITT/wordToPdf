@@ -2140,8 +2140,37 @@
             return div.innerHTML;
         }
 
+        async function safeJsonParse(response) {
+            /**
+             * Safely parse JSON response, handling cases where server returns HTML or plain text
+             * (e.g., from proxy/load balancer errors like "upstream request failed")
+             */
+            const contentType = response.headers.get('content-type') || '';
+            
+            // Check if response is actually JSON
+            if (!contentType.includes('application/json')) {
+                // Try to get text to see what we actually received
+                const text = await response.text();
+                throw new Error(`Server returned non-JSON response: ${text.substring(0, 100)}`);
+            }
+            
+            // Parse JSON with error handling
+            try {
+                return await response.json();
+            } catch (error) {
+                // If JSON parsing fails, try to get the text for better error message
+                const text = await response.text();
+                throw new Error(`Failed to parse JSON response: ${error.message}. Response: ${text.substring(0, 200)}`);
+            }
+        }
+
         convertBtn.addEventListener('click', async () => {
             if (selectedFiles.length === 0) return;
+
+            // Declare all variables at the start to avoid scope issues
+            let progressInterval = null;
+            let isDownloading = false;
+            let currentConversionId = null; // Track current conversion ID to detect new conversions
 
             // Disable UI interactions
             convertBtn.disabled = true;
@@ -2163,6 +2192,8 @@
             fileStatusMap = {};
             lastProgressPercentage = 0; // Reset progress tracking for new conversion
             lastDisplayCurrent = 0; // Reset display current tracking
+            // Don't reset currentConversionId here - let it be set when we detect the new conversion_id from backend
+            // This prevents false "new conversion" detection when polling starts before backend resets
             
             // Explicitly reset progress bar and all progress UI elements
             progressBar.style.width = '0%';
@@ -2207,10 +2238,6 @@
                 formData.append('files[]', file);
             });
 
-            // Declare progressInterval outside try block so it's accessible in catch and finally
-            let progressInterval = null;
-            let isDownloading = false;
-
             try {
                 
                 const startProgressPolling = () => {
@@ -2223,9 +2250,65 @@
                             }
                             
                             const progressResponse = await fetch('/progress');
-                            const progressData = await progressResponse.json();
+                            if (!progressResponse.ok) {
+                                throw new Error(`Progress check failed: ${progressResponse.status} ${progressResponse.statusText}`);
+                            }
+                            const progressData = await safeJsonParse(progressResponse);
                             
-                            if (progressData.status === 'converting') {
+                            // Check if this is a new conversion (conversion_id changed)
+                            // Only treat as new if:
+                            // 1. We have a conversion_id in the response
+                            // 2. It's different from what we're tracking
+                            // 3. We're not in the middle of a conversion (status is 'converting' or 'idle', not 'completed')
+                            if (progressData.conversion_id && 
+                                progressData.conversion_id !== currentConversionId &&
+                                progressData.status !== 'completed') {
+                                // New conversion detected - reset tracking variables
+                                const oldConversionId = currentConversionId;
+                                currentConversionId = progressData.conversion_id;
+                                lastProgressPercentage = 0;
+                                lastDisplayCurrent = 0;
+                                fileStatusMap = {};
+                                console.log('New conversion detected:', currentConversionId, '(previous:', oldConversionId, ')');
+                            }
+                            
+                            // Ignore 'completed' status if conversion_id doesn't match (stale data from previous conversion)
+                            if (progressData.status === 'completed') {
+                                // Only stop polling if this completion is for the current conversion
+                                // Check: conversion_id matches AND display_total > 0 (indicates real completion, not stale reset)
+                                const isCurrentConversion = progressData.conversion_id === currentConversionId;
+                                const hasValidData = progressData.display_total > 0 || progressData.total > 0;
+                                
+                                if (isCurrentConversion && hasValidData) {
+                                    // Valid completion for current conversion
+                                    clearInterval(progressInterval);
+                                    updateProgressDashboard({
+                                        ...progressData,
+                                        percentage: 100,
+                                        message: 'Conversion complete! Downloading...'
+                                    });
+                                } else if (currentConversionId === null && hasValidData) {
+                                    // First poll and we see completed with valid data - might be from previous conversion
+                                    // Don't stop polling, wait for new conversion to start
+                                    console.log('Ignoring completed status on first poll - waiting for new conversion');
+                                } else {
+                                    // Stale 'completed' status from previous conversion - ignore and keep polling
+                                    console.log('Ignoring stale completed status - conversion_id mismatch or invalid data');
+                                }
+                            } else if (progressData.status === 'converting') {
+                                // Update currentConversionId if we see a new one
+                                if (progressData.conversion_id && progressData.conversion_id !== currentConversionId) {
+                                    // New conversion detected - reset everything
+                                    currentConversionId = progressData.conversion_id;
+                                    lastProgressPercentage = 0;
+                                    lastDisplayCurrent = 0;
+                                    fileStatusMap = {};
+                                    console.log('New conversion detected during polling:', currentConversionId);
+                                    // Reset UI to show fresh start
+                                    progressBar.style.width = '0%';
+                                    progressPercentage.textContent = '0%';
+                                    progressFiles.textContent = '0/0';
+                                }
                                 updateProgressDashboard(progressData);
                                 // Update file statuses
                                 if (progressData.files) {
@@ -2233,16 +2316,22 @@
                                         fileStatusMap[file.name] = file.status;
                                     });
                                 }
-                            } else if (progressData.status === 'completed') {
-                                clearInterval(progressInterval);
-                                updateProgressDashboard({
-                                    ...progressData,
-                                    percentage: 100,
-                                    message: 'Conversion complete! Downloading...'
-                                });
                             } else if (progressData.status === 'error') {
-                                clearInterval(progressInterval);
-                                throw new Error(progressData.error || 'Conversion failed');
+                                // Only stop on error if it's for the current conversion
+                                if (progressData.conversion_id === currentConversionId || currentConversionId === null) {
+                                    clearInterval(progressInterval);
+                                    throw new Error(progressData.error || 'Conversion failed');
+                                } else {
+                                    // Stale error from previous conversion - ignore
+                                    console.log('Ignoring stale error from previous conversion');
+                                }
+                            } else if (progressData.status === 'idle') {
+                                // If status is idle, it might be a reset - keep polling but don't update UI
+                                // Only update if we have a valid conversion_id
+                                if (progressData.conversion_id && progressData.conversion_id === currentConversionId) {
+                                    // This is our conversion in idle state - might be initializing
+                                    updateProgressDashboard(progressData);
+                                }
                             }
                         } catch (error) {
                             console.error('Progress polling error:', error);
@@ -2284,9 +2373,12 @@
                     let lastProgressData = null;
                     try {
                         const lastProgressResponse = await fetch('/progress');
-                        lastProgressData = await lastProgressResponse.json();
+                        if (lastProgressResponse.ok) {
+                            lastProgressData = await safeJsonParse(lastProgressResponse);
+                        }
                     } catch (e) {
                         // If we can't get last progress, use defaults
+                        console.warn('Could not fetch last progress data:', e);
                     }
                     
                     // Update progress to show download is starting
@@ -2348,7 +2440,26 @@
                     return;
                 }
 
-                const data = await response.json();
+                // Check if response is JSON before parsing
+                if (!response.ok) {
+                    // For error responses, try to parse JSON if possible
+                    const contentType = response.headers.get('content-type') || '';
+                    if (contentType.includes('application/json')) {
+                        try {
+                            const errorData = await safeJsonParse(response);
+                            throw new Error(errorData.error || `Server error: ${response.status} ${response.statusText}`);
+                        } catch (parseError) {
+                            // If JSON parsing fails, use status text
+                            throw new Error(`Server error: ${response.status} ${response.statusText}`);
+                        }
+                    } else {
+                        // Non-JSON error response (e.g., from proxy/load balancer)
+                        const errorText = await response.text();
+                        throw new Error(`Server error: ${response.status} ${response.statusText}. ${errorText.substring(0, 200)}`);
+                    }
+                }
+                
+                const data = await safeJsonParse(response);
                 throw new Error(data.error || 'Conversion failed');
             } catch (error) {
                 // Stop progress polling if still running
