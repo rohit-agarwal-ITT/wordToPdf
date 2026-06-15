@@ -3,6 +3,21 @@ from docx.shared import RGBColor
 from docx.enum.text import WD_COLOR_INDEX
 import os
 
+
+class OrdinalDateValue:
+    """Date value rendered as e.g. 4th February' 26 with superscript ordinal suffix."""
+
+    __slots__ = ('day', 'ordinal_suffix', 'month_year_text')
+
+    def __init__(self, day, ordinal_suffix, month_year_text):
+        self.day = day
+        self.ordinal_suffix = ordinal_suffix
+        self.month_year_text = month_year_text
+
+    def __str__(self):
+        return f"{self.day}{self.ordinal_suffix}{self.month_year_text}"
+
+
 class WordProcessor:
     def __init__(self):
         pass
@@ -171,12 +186,124 @@ class WordProcessor:
             except Exception:
                 pass
     
+    def _apply_base_run_format(self, base_run, target_run):
+        """Copy basic font styling from one run to another."""
+        if base_run is None or target_run is None:
+            return
+        try:
+            if base_run.bold is not None:
+                target_run.bold = base_run.bold
+            if base_run.italic is not None:
+                target_run.italic = base_run.italic
+            if base_run.font.size is not None:
+                target_run.font.size = base_run.font.size
+            if base_run.font.name:
+                target_run.font.name = base_run.font.name
+        except Exception:
+            pass
+
+    def _insert_run_after(self, run):
+        """Insert a new empty run immediately after the given run."""
+        from docx.oxml import OxmlElement
+        from docx.text.run import Run
+
+        new_r = OxmlElement('w:r')
+        run._element.addnext(new_r)
+        new_run = Run(new_r, run._parent)
+        self._apply_base_run_format(run, new_run)
+        return new_run
+
+    def _replace_ordinal_date_in_paragraph(self, paragraph, placeholder, date_value):
+        """
+        Replace a placeholder with an ordinal date where the suffix (st/nd/rd/th)
+        is rendered as superscript, e.g. 4th February' 26.
+        Only the first occurrence is replaced so multiple dates in one paragraph keep formatting.
+        """
+        placeholder_text = f'{{{placeholder}}}'
+        if placeholder_text not in paragraph.text:
+            return False
+
+        full_text = paragraph.text
+        placeholder_start = full_text.find(placeholder_text)
+        if placeholder_start == -1:
+            return False
+
+        placeholder_end = placeholder_start + len(placeholder_text)
+
+        current_pos = 0
+        start_run_idx = None
+        end_run_idx = None
+
+        for i, run in enumerate(paragraph.runs):
+            run_length = len(run.text)
+            run_start = current_pos
+            run_end = current_pos + run_length
+
+            if start_run_idx is None and run_start <= placeholder_start < run_end:
+                start_run_idx = i
+            if run_start < placeholder_end <= run_end:
+                end_run_idx = i
+                break
+
+            current_pos = run_end
+
+        if start_run_idx is None or end_run_idx is None:
+            return False
+
+        pos = 0
+        start_run_text_before = ''
+        end_run_text_after = ''
+
+        for i, run in enumerate(paragraph.runs):
+            run_text = run.text
+            run_len = len(run_text)
+
+            if i == start_run_idx:
+                offset_in_run = placeholder_start - pos
+                start_run_text_before = run_text[:offset_in_run]
+            if i == end_run_idx:
+                offset_in_run = placeholder_end - pos
+                end_run_text_after = run_text[offset_in_run:]
+                break
+
+            pos += run_len
+
+        self._remove_highlighting_from_all_runs(paragraph, start_run_idx, end_run_idx)
+
+        elements_to_remove = []
+        for i in range(start_run_idx + 1, end_run_idx + 1):
+            if i < len(paragraph.runs):
+                elements_to_remove.append(paragraph.runs[i]._element)
+
+        start_run = paragraph.runs[start_run_idx]
+        start_run.text = start_run_text_before + str(date_value.day)
+        self._remove_highlighting(start_run)
+
+        suffix_run = self._insert_run_after(start_run)
+        suffix_run.text = date_value.ordinal_suffix
+        suffix_run.font.superscript = True
+        self._remove_highlighting(suffix_run)
+
+        rest_run = self._insert_run_after(suffix_run)
+        rest_run.text = date_value.month_year_text + end_run_text_after
+        self._remove_highlighting(rest_run)
+
+        for element in elements_to_remove:
+            parent = element.getparent()
+            if parent is not None:
+                parent.remove(element)
+
+        return True
+
     def _replace_placeholder_in_paragraph(self, paragraph, placeholder, value):
         """
         Replace a placeholder in a paragraph, handling cases where the placeholder
         may be split across multiple runs (e.g., due to formatting like bold).
         Preserves spacing and formatting around the placeholder.
         """
+        if isinstance(value, OrdinalDateValue):
+            return self._replace_ordinal_date_in_paragraph(paragraph, placeholder, value)
+
         placeholder_text = f'{{{placeholder}}}'
         
         # Check if placeholder exists in paragraph text

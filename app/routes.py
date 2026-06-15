@@ -3,7 +3,7 @@ import os
 import uuid
 import re
 from werkzeug.utils import secure_filename
-from app.utils.word_processor import WordProcessor
+from app.utils.word_processor import WordProcessor, OrdinalDateValue
 from app.utils.pdf_generator import PDFGenerator
 from docx2pdf import convert
 import io
@@ -198,6 +198,68 @@ def allowed_file(filename):
     # Only allow Excel files (.xlsx)
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'xlsx'
 
+TRAINING_TEMPLATE_NAME = 'sample_training_document.docx'
+
+def _find_column_name(columns, target_name):
+    """Return the actual column name matching target_name (case-insensitive)."""
+    target = target_name.strip().lower()
+    for col in columns:
+        if str(col).strip().lower() == target:
+            return str(col)
+    return None
+
+def is_training_excel(columns):
+    """Training workbooks include a Status column to drive letter generation."""
+    return _find_column_name(columns, 'Status') is not None
+
+def count_eligible_rows(df):
+    """Count rows that will produce a letter (all rows, or Completed-only for training sheets)."""
+    if not is_training_excel(df.columns):
+        return len(df)
+    status_col = _find_column_name(df.columns, 'Status')
+    mask = df[status_col].apply(
+        lambda v: str(v).strip().lower() == 'completed' if not pd.isna(v) else False
+    )
+    return int(mask.sum())
+
+def is_completed_status(status_value):
+    """Return True when Status indicates a completed training record."""
+    if status_value is None or pd.isna(status_value):
+        return False
+    return str(status_value).strip().lower() == 'completed'
+
+def enrich_gender_placeholders(data, gender_value):
+    """
+    Add salutation placeholders for training letters based on Gender.
+    Supports both {Mr_Ms} (template) and {Mr_Mrs} (alternate naming).
+    """
+    gender = str(gender_value).strip().lower() if gender_value is not None and not pd.isna(gender_value) else ''
+    if gender == 'male':
+        data['Mr_Ms'] = 'Mr.'
+        data['Mr_Mrs'] = 'Mr.'
+        data['his_her'] = 'his'
+        data['he_she'] = 'he'
+        data['him_her'] = 'him'
+    elif gender == 'female':
+        data['Mr_Ms'] = 'Ms.'
+        data['Mr_Mrs'] = 'Mrs.'
+        data['his_her'] = 'her'
+        data['he_she'] = 'she'
+        data['him_her'] = 'her'
+    else:
+        data['Mr_Ms'] = ''
+        data['Mr_Mrs'] = ''
+        data['his_her'] = ''
+        data['he_she'] = ''
+        data['him_her'] = ''
+
+def get_training_template_path():
+    """Path to the training completion letter Word template."""
+    template_path = os.path.join('samples', TRAINING_TEMPLATE_NAME)
+    if not os.path.exists(template_path):
+        raise FileNotFoundError(f"Training template not found: {template_path}")
+    return template_path
+
 def get_template_path(location_value, designation_value=None):
     """
     Get the appropriate template path based on designation and location.
@@ -249,71 +311,76 @@ def get_template_path(location_value, designation_value=None):
     
     return template_path
 
-def format_date_field(value, field_name):
-    """
-    Format date fields (Date of Joining, Effective Date, Date) to DD-MonthName-YYYY format.
-    Handles input formats: '2024-07-01' (ISO) or '6/30/2025' (US format).
-    
-    Args:
-        value: The date value from Excel (can be string or datetime object)
-        field_name: The name of the field/column
-    
-    Returns:
-        Formatted date string like '05-August-2025' or original value if not a date field or parsing fails
-    """
-    # Only format specific date fields (case-insensitive matching)
-    date_fields = ['Date of Joining', 'Effective Date', 'Date']
-    field_name_normalized = str(field_name).strip()
-    # Check if field_name matches any date field (case-insensitive)
-    is_date_field = any(field_name_normalized.lower() == df.lower() for df in date_fields)
-    if not is_date_field:
-        return str(value)
-    
-    # If value is already a datetime object (pandas sometimes reads dates as datetime)
+def _ordinal_suffix(day):
+    """Return st/nd/rd/th for a day of month."""
+    if 11 <= day % 100 <= 13:
+        return 'th'
+    return {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+
+def _parse_date_value(value):
+    """Parse Excel/string date values into a datetime, or None if parsing fails."""
     if isinstance(value, pd.Timestamp):
-        try:
-            # Check for NaT (Not a Time) - pandas null timestamp
-            if pd.isna(value):
-                return str(value)
-            return value.strftime('%d-%B-%Y')
-        except:
-            return str(value)
-    
+        if pd.isna(value):
+            return None
+        return value.to_pydatetime()
+
     if isinstance(value, datetime):
-        try:
-            return value.strftime('%d-%B-%Y')
-        except:
-            return str(value)
-    
-    # Convert to string for parsing
+        return value
+
     date_str = str(value).strip()
     if not date_str or date_str.lower() in ['nan', 'none', '']:
-        return str(value)
-    
-    # Try parsing different date formats
+        return None
+
     date_formats = [
-        '%Y-%m-%d',      # 2024-07-01
-        '%m/%d/%Y',      # 6/30/2025
-        '%m-%d-%Y',      # 6-30-2025
-        '%d/%m/%Y',      # 01/07/2024 (alternative)
-        '%d-%m-%Y',      # 01-07-2024 (alternative)
-        '%Y/%m/%d',      # 2024/07/01
+        '%Y-%m-%d',
+        '%m/%d/%Y',
+        '%m-%d-%Y',
+        '%d/%m/%Y',
+        '%d-%m-%Y',
+        '%Y/%m/%d',
+        '%d-%B-%Y',
+        '%d %B %Y',
     ]
-    
-    parsed_date = None
+
     for fmt in date_formats:
         try:
-            parsed_date = datetime.strptime(date_str, fmt)
-            break
+            return datetime.strptime(date_str, fmt)
         except ValueError:
             continue
-    
-    if parsed_date:
-        # Format as DD-MonthName-YYYY (e.g., 05-August-2025)
-        return parsed_date.strftime('%d-%B-%Y')
-    
-    # If parsing failed, return original value
-    return str(value)
+
+    return None
+
+def _format_ordinal_date(parsed_date):
+    """Format as 4th February' 26 (ordinal suffix applied as superscript in Word)."""
+    day = parsed_date.day
+    month = parsed_date.strftime('%B')
+    year = parsed_date.strftime('%y')
+    return OrdinalDateValue(day, _ordinal_suffix(day), f" {month}' {year}")
+
+def format_date_field(value, field_name):
+    """
+    Format date fields for Word templates as 4th February' 26
+    (ordinal suffix rendered as superscript in the PDF).
+    """
+    field_name_normalized = str(field_name).strip().lower()
+    ordinal_date_fields = {
+        'date',
+        'start_date',
+        'end_date',
+        'start date',
+        'end date',
+        'date of joining',
+        'effective date',
+    }
+
+    if field_name_normalized not in ordinal_date_fields:
+        return str(value)
+
+    parsed_date = _parse_date_value(value)
+    if not parsed_date:
+        return str(value)
+
+    return _format_ordinal_date(parsed_date)
 
 def convert_single_file(file_info):
     """Convert a single file using LibreOffice - optimized for parallel processing"""
@@ -517,8 +584,13 @@ def upload_file():
                 if df is None or df.empty:
                     return jsonify({'error': 'The Excel file appears to be empty. Please check your file.'}), 400
                 
-                # Read Excel file and get row count FIRST, then set progress with correct count
-                total_rows = len(df)
+                # Count rows that will actually generate letters
+                total_rows = count_eligible_rows(df)
+                if total_rows == 0:
+                    if is_training_excel(df.columns):
+                        return jsonify({'error': 'No records with Status "Completed" found. Training letters are only generated for completed records.'}), 400
+                    return jsonify({'error': 'The Excel file appears to be empty. Please check your file.'}), 400
+                
                 # Total steps: DOCX generation (50%) + PDF conversion (50%)
                 total_steps = total_rows * 2
                 
@@ -563,66 +635,79 @@ def upload_file():
                             formatted_value = format_date_field(value, col_str)
                             data[col_str] = formatted_value
                         
-                        # Get location value to determine which template to use
-                        # Primary: Look for "Place of Joining" column (exact match, case-insensitive)
-                        location_value = None
-                        for col in df.columns:
-                            col_str = str(col).strip()
-                            # Check for exact match with "Place of Joining" (case-insensitive)
-                            if col_str.lower() == 'place of joining':
-                                location_value = data.get(col_str)
-                                break
+                        status_col = _find_column_name(df.columns, 'Status')
+                        letter_type = 'appointment'
                         
-                        # Fallback: Try common location column names (case-insensitive)
-                        if location_value is None:
-                            location_column_names = ['Location', 'location', 'LOCATION', 'City', 'city', 'CITY', 'Location Name', 'location name', 'Place of Joining', 'place of joining']
-                            for loc_col in location_column_names:
-                                if loc_col in data:
-                                    location_value = data[loc_col]
-                                    break
-                        
-                        # If still not found, try to find any column containing 'location', 'city', or 'place'
-                        if location_value is None:
+                        if status_col is not None:
+                            status_value = data.get(status_col, '')
+                            if not is_completed_status(status_value):
+                                return None
+                            letter_type = 'training'
+                            gender_col = _find_column_name(df.columns, 'Gender')
+                            gender_value = data.get(gender_col, '') if gender_col else ''
+                            enrich_gender_placeholders(data, gender_value)
+                            word_template = get_training_template_path()
+                        else:
+                            # Get location value to determine which template to use
+                            # Primary: Look for "Place of Joining" column (exact match, case-insensitive)
+                            location_value = None
                             for col in df.columns:
-                                col_lower = str(col).lower()
-                                if 'location' in col_lower or 'city' in col_lower or ('place' in col_lower and 'joining' in col_lower):
-                                    location_value = data.get(str(col))
+                                col_str = str(col).strip()
+                                # Check for exact match with "Place of Joining" (case-insensitive)
+                                if col_str.lower() == 'place of joining':
+                                    location_value = data.get(col_str)
                                     break
-                        
-                        # Get designation value to determine which template to use
-                        # Primary: Look for "Designation" column (exact match, case-insensitive)
-                        designation_value = None
-                        for col in df.columns:
-                            col_str = str(col).strip()
-                            # Check for exact match with "Designation" (case-insensitive)
-                            if col_str.lower() == 'designation':
-                                designation_value = data.get(col_str)
-                                break
-                        
-                        # Fallback: Try common designation column names (case-insensitive)
-                        if designation_value is None:
-                            designation_column_names = ['Designation', 'designation', 'DESIGNATION', 'Role', 'role', 'ROLE', 'Job Title', 'job title']
-                            for desig_col in designation_column_names:
-                                if desig_col in data:
-                                    designation_value = data[desig_col]
-                                    break
-                        
-                        # If still not found, try to find any column containing 'designation' or 'role'
-                        if designation_value is None:
+                            
+                            # Fallback: Try common location column names (case-insensitive)
+                            if location_value is None:
+                                location_column_names = ['Location', 'location', 'LOCATION', 'City', 'city', 'CITY', 'Location Name', 'location name', 'Place of Joining', 'place of joining']
+                                for loc_col in location_column_names:
+                                    if loc_col in data:
+                                        location_value = data[loc_col]
+                                        break
+                            
+                            # If still not found, try to find any column containing 'location', 'city', or 'place'
+                            if location_value is None:
+                                for col in df.columns:
+                                    col_lower = str(col).lower()
+                                    if 'location' in col_lower or 'city' in col_lower or ('place' in col_lower and 'joining' in col_lower):
+                                        location_value = data.get(str(col))
+                                        break
+                            
+                            # Get designation value to determine which template to use
+                            # Primary: Look for "Designation" column (exact match, case-insensitive)
+                            designation_value = None
                             for col in df.columns:
-                                col_lower = str(col).lower()
-                                if 'designation' in col_lower or ('role' in col_lower and 'title' not in col_lower):
-                                    designation_value = data.get(str(col))
+                                col_str = str(col).strip()
+                                # Check for exact match with "Designation" (case-insensitive)
+                                if col_str.lower() == 'designation':
+                                    designation_value = data.get(col_str)
                                     break
-                        
-                        # Get the appropriate template based on designation and location
-                        word_template = get_template_path(location_value, designation_value)
+                            
+                            # Fallback: Try common designation column names (case-insensitive)
+                            if designation_value is None:
+                                designation_column_names = ['Designation', 'designation', 'DESIGNATION', 'Role', 'role', 'ROLE', 'Job Title', 'job title']
+                                for desig_col in designation_column_names:
+                                    if desig_col in data:
+                                        designation_value = data[desig_col]
+                                        break
+                            
+                            # If still not found, try to find any column containing 'designation' or 'role'
+                            if designation_value is None:
+                                for col in df.columns:
+                                    col_lower = str(col).lower()
+                                    if 'designation' in col_lower or ('role' in col_lower and 'title' not in col_lower):
+                                        designation_value = data.get(str(col))
+                                        break
+                            
+                            # Get the appropriate template based on designation and location
+                            word_template = get_template_path(location_value, designation_value)
                         
                         docx_name = f"{data.get('Name', 'Candidate')}_{i+1}.docx"
                         docx_path = os.path.join(temp_dir, docx_name)
                         wp = WordProcessor()  # Create a new instance per row/thread
                         wp.fill_placeholders(word_template, docx_path, data)
-                        return docx_path
+                        return (docx_path, letter_type)
                     except Exception as e:
                         # Log the actual error for debugging
                         import traceback
@@ -635,8 +720,9 @@ def upload_file():
                     futures = {executor.submit(generate_docx, (i, row)): i for i, row in df.iterrows()}
                     for idx, future in enumerate(as_completed(futures)):
                         try:
-                            docx_path = future.result()
-                            docx_files.append(docx_path)
+                            result = future.result()
+                            if result is not None:
+                                docx_files.append(result)
                         except Exception as e:
                             # Log the error and continue with other rows
                             import traceback
@@ -647,8 +733,8 @@ def upload_file():
                         # Progress for DOCX generation: 0 to 50% - but show as PDF preparation
                         # Map progress to show as if we're creating PDFs directly
                         # Update progress more frequently to show row-by-row progress
-                        rows_processed = idx + 1
-                        progress_pct = rows_processed / total_rows * 0.3  # First 30% is preparation
+                        rows_processed = len(docx_files)
+                        progress_pct = rows_processed / total_rows * 0.3 if total_rows else 0  # First 30% is preparation
                         current_progress = int(total_steps * progress_pct)
                         # Update progress - update_progress will calculate display_current correctly
                         # But we need to ensure it reflects the actual row count
@@ -678,7 +764,7 @@ def upload_file():
                 try:
                     # Validate all file paths before passing to subprocess
                     validated_files = []
-                    for docx_file in docx_files:
+                    for docx_file, _letter_type in docx_files:
                         if os.path.exists(docx_file) and os.path.isfile(docx_file):
                             # Ensure file is within temp directory
                             real_temp_path = os.path.realpath(temp_dir)
@@ -754,7 +840,7 @@ def upload_file():
                 
                 # Collect PDFs and update progress (90% to 100%)
                 pdfs_collected = 0
-                for idx, docx_file in enumerate(docx_files):
+                for idx, (docx_file, letter_type) in enumerate(docx_files):
                     base = os.path.splitext(os.path.basename(docx_file))[0]
                     # Extract name by removing the _number suffix (e.g., "John Doe_1" -> "John Doe")
                     name_match = re.match(r'^(.+?)_\d+$', base)
@@ -762,7 +848,10 @@ def upload_file():
                         name = name_match.group(1)
                     else:
                         name = base  # Fallback if pattern doesn't match
-                    pdf_name = f"Appointment letter and Training Agreement- {name}.pdf"
+                    if letter_type == 'training':
+                        pdf_name = f"Training letter- {name}.pdf"
+                    else:
+                        pdf_name = f"Appointment letter and Training Agreement- {name}.pdf"
                     pdf_path = os.path.join(output_dir, base + '.pdf')
                     if os.path.exists(pdf_path):
                         pdf_files.append((pdf_path, pdf_name))
