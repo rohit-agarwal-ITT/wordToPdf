@@ -198,7 +198,14 @@ def allowed_file(filename):
     # Only allow Excel files (.xlsx)
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'xlsx'
 
-TRAINING_TEMPLATE_NAME = 'sample_training_document.docx'
+SAMPLES_DIR = 'samples'
+TRAINEE_TEMPLATE_NAME = 'Appointment Letter and Training Agreement.docx'
+JAIPUR_TEMPLATE_NAME = 'Appointment Letter and Employment Agreement - Jaipur.docx'
+BANGALORE_TEMPLATE_NAME = 'Appointment Letter and Employment Agreement - Bangalore.docx'
+TRAINING_TEMPLATE_NAME = 'Training letter.docx'
+
+def _sample_path(filename):
+    return os.path.join(SAMPLES_DIR, filename)
 
 def _find_column_name(columns, target_name):
     """Return the actual column name matching target_name (case-insensitive)."""
@@ -255,10 +262,24 @@ def enrich_gender_placeholders(data, gender_value):
 
 def get_training_template_path():
     """Path to the training completion letter Word template."""
-    template_path = os.path.join('samples', TRAINING_TEMPLATE_NAME)
+    template_path = _sample_path(TRAINING_TEMPLATE_NAME)
     if not os.path.exists(template_path):
         raise FileNotFoundError(f"Training template not found: {template_path}")
     return template_path
+
+def get_appointment_letter_type(designation_value):
+    """Return trainee or employment letter type based on designation."""
+    if designation_value and 'trainee' in str(designation_value).strip().lower():
+        return 'trainee'
+    return 'employment'
+
+def get_pdf_filename(letter_type, name):
+    """Build the download filename for a generated appointment/training PDF."""
+    if letter_type == 'training':
+        return f"Training letter- {name}.pdf"
+    if letter_type == 'trainee':
+        return f"Appointment Letter and Training Agreement - {name}.pdf"
+    return f"Appointment Letter and Employment Agreement - {name}.pdf"
 
 def get_template_path(location_value, designation_value=None):
     """
@@ -277,14 +298,12 @@ def get_template_path(location_value, designation_value=None):
         
         # Check if designation is Trainee (case-insensitive)
         if 'trainee' in designation:
-            # Trainee template is not location-specific
-            template_name = 'sample_document_for_trainee_placeholder.docx'
-            template_path = os.path.join('samples', template_name)
-            
+            template_path = _sample_path(TRAINEE_TEMPLATE_NAME)
+
             # Fallback to Jaipur template if trainee template doesn't exist
             if not os.path.exists(template_path):
-                template_path = os.path.join('samples', 'sample_document_for_placeholder_jaipur.docx')
-            
+                template_path = _sample_path(JAIPUR_TEMPLATE_NAME)
+
             return template_path
     
     # For non-Trainee designations (Software Engineer, Junior Software Engineer, etc.)
@@ -295,19 +314,19 @@ def get_template_path(location_value, designation_value=None):
         
         # Check for Bangalore location (case-insensitive)
         if 'bangalore' in location or 'bengaluru' in location:
-            template_name = 'sample_document_for_placeholder_bangalore.docx'
+            template_name = BANGALORE_TEMPLATE_NAME
         else:
             # Default to Jaipur template
-            template_name = 'sample_document_for_placeholder_jaipur.docx'
+            template_name = JAIPUR_TEMPLATE_NAME
     else:
         # Default to Jaipur template if location is empty/None
-        template_name = 'sample_document_for_placeholder_jaipur.docx'
+        template_name = JAIPUR_TEMPLATE_NAME
     
-    template_path = os.path.join('samples', template_name)
+    template_path = _sample_path(template_name)
     
     # Fallback to Jaipur template if location-specific template doesn't exist
     if not os.path.exists(template_path):
-        template_path = os.path.join('samples', 'sample_document_for_placeholder_jaipur.docx')
+        template_path = _sample_path(JAIPUR_TEMPLATE_NAME)
     
     return template_path
 
@@ -636,7 +655,7 @@ def upload_file():
                             data[col_str] = formatted_value
                         
                         status_col = _find_column_name(df.columns, 'Status')
-                        letter_type = 'appointment'
+                        letter_type = 'employment'
                         
                         if status_col is not None:
                             status_value = data.get(status_col, '')
@@ -702,6 +721,7 @@ def upload_file():
                             
                             # Get the appropriate template based on designation and location
                             word_template = get_template_path(location_value, designation_value)
+                            letter_type = get_appointment_letter_type(designation_value)
                         
                         docx_name = f"{data.get('Name', 'Candidate')}_{i+1}.docx"
                         docx_path = os.path.join(temp_dir, docx_name)
@@ -848,10 +868,7 @@ def upload_file():
                         name = name_match.group(1)
                     else:
                         name = base  # Fallback if pattern doesn't match
-                    if letter_type == 'training':
-                        pdf_name = f"Training letter- {name}.pdf"
-                    else:
-                        pdf_name = f"Appointment letter and Training Agreement- {name}.pdf"
+                    pdf_name = get_pdf_filename(letter_type, name)
                     pdf_path = os.path.join(output_dir, base + '.pdf')
                     if os.path.exists(pdf_path):
                         pdf_files.append((pdf_path, pdf_name))
@@ -1140,7 +1157,7 @@ def upload_file():
                     name = name_match.group(1)
                 else:
                     name = base  # Fallback if pattern doesn't match
-                pdf_name = f"Appointment letter and Training Agreement- {name}.pdf"
+                pdf_name = get_pdf_filename('employment', name)
                 pdf_path = os.path.join(output_dir, base + '.pdf')
                 filename = os.path.basename(docx_file)
                 if os.path.exists(pdf_path):

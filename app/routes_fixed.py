@@ -104,7 +104,7 @@ def _handle_excel_conversion(excel_file):
     
     try:
         # Validate template file
-        word_template = os.path.join('samples', 'sample_document_for_placeholder.docx')
+        word_template = os.path.join('samples', 'Appointment Letter and Employment Agreement - Jaipur.docx')
         template_ok, template_error = FileValidator.validate_template_file(word_template)
         if not template_ok:
             conversion_manager.conversion_progress['status'] = 'error'

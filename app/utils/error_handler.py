@@ -120,7 +120,7 @@ class ErrorHandler:
                 errors.append(f"Download directory: {download_error}")
         
         # Check template file
-        template_path = os.path.join('samples', 'sample_document_for_placeholder.docx')
+        template_path = os.path.join('samples', 'Appointment Letter and Employment Agreement - Jaipur.docx')
         template_ok, template_error = FileValidator.validate_template_file(template_path)
         if not template_ok:
             warnings.append(f"Template file: {template_error}")

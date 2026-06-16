@@ -56,8 +56,13 @@ def test_app():
     
     # Test 4: Check sample files
     sample_files = [
-        'samples/sample_document_for_placeholder.docx',
-        'samples/sample_excel_sheet.xlsx'
+        'samples/Appointment Letter and Employment Agreement - Jaipur.docx',
+        'samples/Appointment Letter and Employment Agreement - Bangalore.docx',
+        'samples/Appointment Letter and Training Agreement.docx',
+        'samples/Training letter.docx',
+        'samples/Appointment Letter and Employment Agreement - JaipurBangalore.xlsx',
+        'samples/Appointment Letter and Training Agreement.xlsx',
+        'samples/Training letter.xlsx',
     ]
     for file_path in sample_files:
         if os.path.exists(file_path):

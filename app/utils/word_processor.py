@@ -3,6 +3,8 @@ from docx.shared import RGBColor
 from docx.enum.text import WD_COLOR_INDEX
 import os
 
+TRAINEE_TEMPLATE_FILENAME = 'Appointment Letter and Training Agreement.docx'
+
 
 class OrdinalDateValue:
     """Date value rendered as e.g. 4th February' 26 with superscript ordinal suffix."""
@@ -624,8 +626,10 @@ class WordProcessor:
         if not os.path.exists(template_path):
             raise FileNotFoundError(f"Template not found: {template_path}")
         
-        # Check if this is a trainee template
-        is_trainee_template = 'trainee' in os.path.basename(template_path).lower()
+        # Trainee template: "Appointment Letter and Training Agreement.docx"
+        is_trainee_template = (
+            os.path.basename(template_path).lower() == TRAINEE_TEMPLATE_FILENAME.lower()
+        )
         
         try:
             doc = Document(template_path)
