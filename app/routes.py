@@ -401,6 +401,94 @@ def format_date_field(value, field_name):
 
     return _format_ordinal_date(parsed_date)
 
+def _get_soffice_path():
+    if platform.system() == "Windows":
+        return r'C:\Program Files\LibreOffice\program\soffice.exe'
+    return 'soffice'
+
+def _generate_docx_from_row(i, row, df, temp_dir, file_prefix=''):
+    """Generate one filled Word document from an Excel row."""
+    data = {}
+    for col in df.columns:
+        col_str = str(col)
+        value = row[col]
+        if pd.isna(value):
+            value = ''
+        data[col_str] = format_date_field(value, col_str)
+
+    status_col = _find_column_name(df.columns, 'Status')
+    letter_type = 'employment'
+
+    if status_col is not None:
+        status_value = data.get(status_col, '')
+        if not is_completed_status(status_value):
+            return None
+        letter_type = 'training'
+        gender_col = _find_column_name(df.columns, 'Gender')
+        gender_value = data.get(gender_col, '') if gender_col else ''
+        enrich_gender_placeholders(data, gender_value)
+        word_template = get_training_template_path()
+    else:
+        location_value = None
+        for col in df.columns:
+            col_str = str(col).strip()
+            if col_str.lower() == 'place of joining':
+                location_value = data.get(col_str)
+                break
+
+        if location_value is None:
+            location_column_names = [
+                'Location', 'location', 'LOCATION', 'City', 'city', 'CITY',
+                'Location Name', 'location name', 'Place of Joining', 'place of joining',
+            ]
+            for loc_col in location_column_names:
+                if loc_col in data:
+                    location_value = data[loc_col]
+                    break
+
+        if location_value is None:
+            for col in df.columns:
+                col_lower = str(col).lower()
+                if 'location' in col_lower or 'city' in col_lower or ('place' in col_lower and 'joining' in col_lower):
+                    location_value = data.get(str(col))
+                    break
+
+        designation_value = None
+        for col in df.columns:
+            col_str = str(col).strip()
+            if col_str.lower() == 'designation':
+                designation_value = data.get(col_str)
+                break
+
+        if designation_value is None:
+            designation_column_names = [
+                'Designation', 'designation', 'DESIGNATION', 'Role', 'role', 'ROLE',
+                'Job Title', 'job title',
+            ]
+            for desig_col in designation_column_names:
+                if desig_col in data:
+                    designation_value = data[desig_col]
+                    break
+
+        if designation_value is None:
+            for col in df.columns:
+                col_lower = str(col).lower()
+                if 'designation' in col_lower or ('role' in col_lower and 'title' not in col_lower):
+                    designation_value = data.get(str(col))
+                    break
+
+        word_template = get_template_path(location_value, designation_value)
+        letter_type = get_appointment_letter_type(designation_value)
+
+    name_part = str(data.get('Name', 'Candidate')).strip() or 'Candidate'
+    if file_prefix:
+        docx_name = f"{file_prefix}_{name_part}_{i + 1}.docx"
+    else:
+        docx_name = f"{name_part}_{i + 1}.docx"
+    docx_path = os.path.join(temp_dir, docx_name)
+    WordProcessor().fill_placeholders(word_template, docx_path, data)
+    return (docx_path, letter_type, name_part)
+
 def convert_single_file(file_info):
     """Convert a single file using LibreOffice - optimized for parallel processing"""
     file_path, filename = file_info
@@ -556,280 +644,206 @@ def upload_file():
                     current_app.logger.warning(f'Error checking file size: {size_check_error}')
                     # Continue if we can't check size - let the server handle it
         
-        # Excel to Word to PDF batch logic
-        if len(files) == 1 and files[0].filename and files[0].filename.lower().endswith('.xlsx'):
-            # Create temp directories for Excel conversion
+        # Excel to Word to PDF batch logic (supports one or more .xlsx files)
+        excel_files = [f for f in files if f and f.filename]
+        if excel_files and all(f.filename.lower().endswith('.xlsx') for f in excel_files):
             try:
                 temp_dir = tempfile.mkdtemp()
                 output_dir = tempfile.mkdtemp()
             except Exception as e:
                 current_app.logger.error(f'Error creating temp directories: {e}', exc_info=True)
                 return jsonify({'error': 'An error occurred while setting up conversion. Please try again.'}), 500
-            
+
             pdf_files = []
             errors = []
-            
-            try:  # Main try block for Excel conversion
-                excel_file = files[0]
-                if not excel_file.filename:
-                    return jsonify({'error': 'An error occurred during conversion. Please try again.'}), 400
-                
-                # Get Excel filename for dynamic ZIP name - use same name with .zip extension
-                excel_filename = secure_filename(excel_file.filename)
-                excel_base_name = os.path.splitext(excel_filename)[0]  # Remove .xlsx extension
-                zip_filename = f"{excel_base_name}.zip"
-                excel_path = os.path.join(temp_dir, secure_filename(excel_file.filename or 'uploaded.xlsx'))
-                
-                # Save Excel file - this should be quick
-                # IMPORTANT: Ensure we're saving the NEW file, not reusing old data
-                try:
-                    # Reset file pointer to beginning in case it was read before
-                    excel_file.seek(0)
-                    excel_file.save(excel_path)
-                    current_app.logger.info(f'Saved Excel file: {excel_filename} to {excel_path}, conversion_id: {new_conversion_id}')
-                except Exception as e:
-                    current_app.logger.error(f'Error saving Excel file: {e}', exc_info=True)
-                    return jsonify({'error': 'An error occurred while saving the file. Please try again.'}), 400
-                
-                # Read Excel file - this should also be quick for validation
-                # IMPORTANT: Read from the file we just saved, not any cached data
-                try:
-                    df = pd.read_excel(excel_path)
-                    current_app.logger.info(f'Read Excel file: {excel_filename}, rows: {len(df) if df is not None else 0}, conversion_id: {new_conversion_id}')
-                except Exception as e:
-                    current_app.logger.error(f'Error reading Excel file: {e}', exc_info=True)
-                    return jsonify({'error': 'An error occurred while reading the Excel file. Please ensure the file is valid.'}), 400
-                
-                if df is None or df.empty:
-                    return jsonify({'error': 'The Excel file appears to be empty. Please check your file.'}), 400
-                
-                # Count rows that will actually generate letters
-                total_rows = count_eligible_rows(df)
-                if total_rows == 0:
-                    if is_training_excel(df.columns):
-                        return jsonify({'error': 'No records with Status "Completed" found. Training letters are only generated for completed records.'}), 400
-                    return jsonify({'error': 'The Excel file appears to be empty. Please check your file.'}), 400
-                
-                # Total steps: DOCX generation (50%) + PDF conversion (50%)
+
+            try:
+                workbooks = []
+                for excel_file in excel_files:
+                    excel_filename = secure_filename(excel_file.filename)
+                    excel_path = os.path.join(temp_dir, f"{len(workbooks)}_{excel_filename}")
+                    try:
+                        excel_file.seek(0)
+                        excel_file.save(excel_path)
+                        current_app.logger.info(
+                            f'Saved Excel file: {excel_filename} to {excel_path}, conversion_id: {new_conversion_id}'
+                        )
+                    except Exception as e:
+                        current_app.logger.error(f'Error saving Excel file: {e}', exc_info=True)
+                        return jsonify({'error': 'An error occurred while saving the file. Please try again.'}), 400
+
+                    try:
+                        df = pd.read_excel(excel_path)
+                        current_app.logger.info(
+                            f'Read Excel file: {excel_filename}, rows: {len(df) if df is not None else 0}, '
+                            f'conversion_id: {new_conversion_id}'
+                        )
+                    except Exception as e:
+                        current_app.logger.error(f'Error reading Excel file: {e}', exc_info=True)
+                        return jsonify({
+                            'error': f'An error occurred while reading {excel_filename}. Please ensure the file is valid.'
+                        }), 400
+
+                    if df is None or df.empty:
+                        return jsonify({
+                            'error': f'The Excel file "{excel_filename}" appears to be empty. Please check your file.'
+                        }), 400
+
+                    eligible_rows = count_eligible_rows(df)
+                    if eligible_rows == 0:
+                        if is_training_excel(df.columns):
+                            return jsonify({
+                                'error': (
+                                    f'No records with Status "Completed" found in "{excel_filename}". '
+                                    'Training letters are only generated for completed records.'
+                                )
+                            }), 400
+                        return jsonify({
+                            'error': f'The Excel file "{excel_filename}" has no records to process.'
+                        }), 400
+
+                    file_prefix = os.path.splitext(excel_filename)[0] if len(excel_files) > 1 else ''
+                    workbooks.append((excel_filename, df, file_prefix))
+
+                total_rows = sum(count_eligible_rows(df) for _, df, _ in workbooks)
                 total_steps = total_rows * 2
-                
-                # CRITICAL: Set display_total immediately after reading Excel, before any progress updates
-                # This ensures frontend sees the correct count from the start and can start polling
-                # The frontend should be able to poll /progress immediately after this
-                # Do this atomically to ensure frontend sees the update
+                multiple_workbooks = len(workbooks) > 1
+
+                if len(workbooks) == 1:
+                    zip_filename = f"{os.path.splitext(workbooks[0][0])[0]}.zip"
+                else:
+                    zip_filename = 'Appointment_letters.zip'
+
                 with conversion_progress_lock:
-                    # ALWAYS use the new_conversion_id that was generated at the start of this request
-                    # Don't preserve any old conversion_id - this is a new conversion
                     conversion_progress['display_total'] = total_rows
-                    conversion_progress['display_current'] = 0  # Reset display_current as well
-                    conversion_progress['status'] = 'converting'  # Ensure status is set
-                    conversion_progress['message'] = f'Processing {total_rows} records from Excel file...'
-                    conversion_progress['files'] = []  # Clear any old file entries - start fresh
+                    conversion_progress['display_current'] = 0
+                    conversion_progress['status'] = 'converting'
+                    conversion_progress['message'] = (
+                        f'Processing {total_rows} records from {len(workbooks)} Excel file(s)...'
+                    )
+                    conversion_progress['files'] = []
                     conversion_progress['current'] = 0
                     conversion_progress['total'] = total_steps
                     conversion_progress['percentage'] = 0
-                    conversion_progress['conversion_id'] = new_conversion_id  # ALWAYS use the new ID for this conversion
-                    conversion_progress['start_time'] = time.time()  # Reset start time for new conversion
-                    conversion_progress['elapsed_time'] = 0  # Reset elapsed time
-                    conversion_progress['eta_seconds'] = None  # Reset ETA
-                    current_app.logger.info(f'Set progress for Excel conversion: {total_rows} rows, conversion_id: {new_conversion_id}')
-                
-                # Now update progress with the correct display_total
-                # This allows frontend to immediately see progress and start polling
-                # IMPORTANT: This happens BEFORE any long-running operations
-                update_progress(0, total_steps, 'Preparing appointment letters for PDF generation...', display_total=total_rows)
-                
-                def generate_docx(row_tuple):
-                    i, row = row_tuple
-                    try:
-                        # Process data with date formatting for specific fields
-                        data = {}
-                        for col in df.columns:
-                            col_str = str(col)
-                            value = row[col]
-                            # Handle NaN/None values from pandas
-                            if pd.isna(value):
-                                value = ''
-                            # Format date fields appropriately
-                            formatted_value = format_date_field(value, col_str)
-                            data[col_str] = formatted_value
-                        
-                        status_col = _find_column_name(df.columns, 'Status')
-                        letter_type = 'employment'
-                        
-                        if status_col is not None:
-                            status_value = data.get(status_col, '')
-                            if not is_completed_status(status_value):
-                                return None
-                            letter_type = 'training'
-                            gender_col = _find_column_name(df.columns, 'Gender')
-                            gender_value = data.get(gender_col, '') if gender_col else ''
-                            enrich_gender_placeholders(data, gender_value)
-                            word_template = get_training_template_path()
-                        else:
-                            # Get location value to determine which template to use
-                            # Primary: Look for "Place of Joining" column (exact match, case-insensitive)
-                            location_value = None
-                            for col in df.columns:
-                                col_str = str(col).strip()
-                                # Check for exact match with "Place of Joining" (case-insensitive)
-                                if col_str.lower() == 'place of joining':
-                                    location_value = data.get(col_str)
-                                    break
-                            
-                            # Fallback: Try common location column names (case-insensitive)
-                            if location_value is None:
-                                location_column_names = ['Location', 'location', 'LOCATION', 'City', 'city', 'CITY', 'Location Name', 'location name', 'Place of Joining', 'place of joining']
-                                for loc_col in location_column_names:
-                                    if loc_col in data:
-                                        location_value = data[loc_col]
-                                        break
-                            
-                            # If still not found, try to find any column containing 'location', 'city', or 'place'
-                            if location_value is None:
-                                for col in df.columns:
-                                    col_lower = str(col).lower()
-                                    if 'location' in col_lower or 'city' in col_lower or ('place' in col_lower and 'joining' in col_lower):
-                                        location_value = data.get(str(col))
-                                        break
-                            
-                            # Get designation value to determine which template to use
-                            # Primary: Look for "Designation" column (exact match, case-insensitive)
-                            designation_value = None
-                            for col in df.columns:
-                                col_str = str(col).strip()
-                                # Check for exact match with "Designation" (case-insensitive)
-                                if col_str.lower() == 'designation':
-                                    designation_value = data.get(col_str)
-                                    break
-                            
-                            # Fallback: Try common designation column names (case-insensitive)
-                            if designation_value is None:
-                                designation_column_names = ['Designation', 'designation', 'DESIGNATION', 'Role', 'role', 'ROLE', 'Job Title', 'job title']
-                                for desig_col in designation_column_names:
-                                    if desig_col in data:
-                                        designation_value = data[desig_col]
-                                        break
-                            
-                            # If still not found, try to find any column containing 'designation' or 'role'
-                            if designation_value is None:
-                                for col in df.columns:
-                                    col_lower = str(col).lower()
-                                    if 'designation' in col_lower or ('role' in col_lower and 'title' not in col_lower):
-                                        designation_value = data.get(str(col))
-                                        break
-                            
-                            # Get the appropriate template based on designation and location
-                            word_template = get_template_path(location_value, designation_value)
-                            letter_type = get_appointment_letter_type(designation_value)
-                        
-                        docx_name = f"{data.get('Name', 'Candidate')}_{i+1}.docx"
-                        docx_path = os.path.join(temp_dir, docx_name)
-                        wp = WordProcessor()  # Create a new instance per row/thread
-                        wp.fill_placeholders(word_template, docx_path, data)
-                        return (docx_path, letter_type)
-                    except Exception as e:
-                        # Log the actual error for debugging
-                        import traceback
-                        error_msg = f"Error generating DOCX for row {i+1}: {str(e)}\n{traceback.format_exc()}"
-                        print(error_msg)  # Print to console/log
-                        raise Exception(f"Error processing row {i+1}: {str(e)}")
-                
-                docx_files = []
-                with ThreadPoolExecutor(max_workers=4) as executor:
-                    futures = {executor.submit(generate_docx, (i, row)): i for i, row in df.iterrows()}
-                    for idx, future in enumerate(as_completed(futures)):
+                    conversion_progress['conversion_id'] = new_conversion_id
+                    conversion_progress['start_time'] = time.time()
+                    conversion_progress['elapsed_time'] = 0
+                    conversion_progress['eta_seconds'] = None
+                    current_app.logger.info(
+                        f'Set progress for Excel conversion: {total_rows} rows from {len(workbooks)} file(s), '
+                        f'conversion_id: {new_conversion_id}'
+                    )
+
+                update_progress(
+                    0, total_steps,
+                    'Preparing appointment letters for PDF generation...',
+                    display_total=total_rows
+                )
+
+                all_docx_files = []
+                for workbook_index, (excel_filename, df, file_prefix) in enumerate(workbooks, start=1):
+                    workbook_rows = count_eligible_rows(df)
+                    workbook_label = (
+                        f' ({workbook_index}/{len(workbooks)}: {excel_filename})'
+                        if multiple_workbooks else ''
+                    )
+
+                    def generate_docx(row_tuple, current_df=df, prefix=file_prefix, source_name=excel_filename):
+                        i, row = row_tuple
                         try:
-                            result = future.result()
-                            if result is not None:
-                                docx_files.append(result)
+                            return _generate_docx_from_row(i, row, current_df, temp_dir, prefix)
                         except Exception as e:
-                            # Log the error and continue with other rows
                             import traceback
-                            error_msg = f"Error in future result: {str(e)}\n{traceback.format_exc()}"
-                            print(error_msg)
-                            # Re-raise to stop processing
-                            raise Exception(f"Error generating appointment letter: {str(e)}")
-                        # Progress for DOCX generation: 0 to 50% - but show as PDF preparation
-                        # Map progress to show as if we're creating PDFs directly
-                        # Update progress more frequently to show row-by-row progress
-                        rows_processed = len(docx_files)
-                        progress_pct = rows_processed / total_rows * 0.3 if total_rows else 0  # First 30% is preparation
-                        current_progress = int(total_steps * progress_pct)
-                        # Update progress - update_progress will calculate display_current correctly
-                        # But we need to ensure it reflects the actual row count
-                        update_progress(current_progress, total_steps, 
-                                      f'Preparing appointment letters... ({rows_processed}/{total_rows} records)', 
-                                      display_total=total_rows)
-                        
-                        # Explicitly update display_current to match rows processed for better accuracy
-                        # This ensures frontend sees the correct row-by-row progress
-                        with conversion_progress_lock:
-                            # Ensure display_current matches rows processed (for row-by-row visibility)
-                            conversion_progress['display_current'] = max(
-                                conversion_progress.get('display_current', 0),
-                                rows_processed
+                            error_msg = (
+                                f"Error generating DOCX for row {i + 1} in {source_name}: {str(e)}\n"
+                                f"{traceback.format_exc()}"
                             )
-                
-                # DOCX generation complete, now starting PDF conversion (50% of progress)
-                # Show as if we're starting PDF creation
-                update_progress(total_rows, total_steps, 'Generating PDFs. This may take a moment...', display_total=total_rows)
-                
-                # Replace all hardcoded soffice_path assignments with platform-aware logic
-                if platform.system() == "Windows":
-                    soffice_path = r'C:\Program Files\LibreOffice\program\soffice.exe'
-                else:
-                    soffice_path = 'soffice'
-                
+                            print(error_msg)
+                            raise Exception(f"Error processing row {i + 1} in {source_name}: {str(e)}")
+
+                    with ThreadPoolExecutor(max_workers=4) as executor:
+                        futures = {
+                            executor.submit(generate_docx, (i, row)): i for i, row in df.iterrows()
+                        }
+                        for future in as_completed(futures):
+                            try:
+                                result = future.result()
+                                if result is not None:
+                                    all_docx_files.append((*result, file_prefix))
+                            except Exception as e:
+                                import traceback
+                                error_msg = f"Error in future result: {str(e)}\n{traceback.format_exc()}"
+                                print(error_msg)
+                                raise Exception(f"Error generating appointment letter: {str(e)}")
+
+                            rows_processed = len(all_docx_files)
+                            progress_pct = rows_processed / total_rows * 0.3 if total_rows else 0
+                            current_progress = int(total_steps * progress_pct)
+                            update_progress(
+                                current_progress, total_steps,
+                                f'Preparing appointment letters... ({rows_processed}/{total_rows} records){workbook_label}',
+                                display_total=total_rows
+                            )
+                            with conversion_progress_lock:
+                                conversion_progress['display_current'] = max(
+                                    conversion_progress.get('display_current', 0),
+                                    rows_processed
+                                )
+
+                update_progress(
+                    total_rows, total_steps,
+                    'Generating PDFs. This may take a moment...',
+                    display_total=total_rows
+                )
+
+                soffice_path = _get_soffice_path()
+
                 try:
-                    # Validate all file paths before passing to subprocess
                     validated_files = []
-                    for docx_file, _letter_type in docx_files:
+                    for docx_file, _letter_type, _name, _file_prefix in all_docx_files:
                         if os.path.exists(docx_file) and os.path.isfile(docx_file):
-                            # Ensure file is within temp directory
                             real_temp_path = os.path.realpath(temp_dir)
                             real_file_path = os.path.realpath(docx_file)
                             if real_file_path.startswith(real_temp_path):
                                 validated_files.append(docx_file)
-                    
+
                     if not validated_files:
                         raise Exception("No valid files found for conversion")
-                    
-                    # Start conversion in background and monitor progress
+
                     conversion_complete = threading.Event()
                     conversion_error = [None]
-                    
+
                     def monitor_pdf_conversion_excel():
-                        """Monitor output directory for PDF files appearing"""
-                        expected_pdfs = {os.path.splitext(os.path.basename(f))[0] + '.pdf': os.path.basename(f) for f in validated_files}
+                        expected_pdfs = {
+                            os.path.splitext(os.path.basename(f))[0] + '.pdf': os.path.basename(f)
+                            for f in validated_files
+                        }
                         pdfs_found = set()
                         start_time = time.time()
-                        max_wait_time = 300  # 5 minutes max
-                        
+                        max_wait_time = 300
+
                         while not conversion_complete.is_set() and (time.time() - start_time) < max_wait_time:
-                            # Check for new PDFs
                             if os.path.exists(output_dir):
                                 existing_pdfs = set(f for f in os.listdir(output_dir) if f.endswith('.pdf'))
                                 new_pdfs = existing_pdfs - pdfs_found
-                                
+
                                 for pdf_file in new_pdfs:
                                     if pdf_file in expected_pdfs:
                                         pdfs_found.add(pdf_file)
-                                        # Update progress: 30% to 90% based on PDFs found (show as PDF creation)
                                         progress_pct = 0.3 + (len(pdfs_found) / len(expected_pdfs)) * 0.6
                                         current_progress = int(total_steps * progress_pct)
-                                        update_progress(current_progress, total_steps, 
-                                                      'Creating PDFs...', 
-                                                      display_total=total_rows)
-                                
-                                # If all PDFs are found, we're done
+                                        update_progress(
+                                            current_progress, total_steps,
+                                            'Creating PDFs...',
+                                            display_total=total_rows
+                                        )
+
                                 if len(pdfs_found) == len(expected_pdfs):
                                     break
-                            
-                            time.sleep(0.5)  # Check every 500ms
-                    
+
+                            time.sleep(0.5)
+
                     def run_conversion_excel():
-                        """Run the actual conversion"""
                         try:
                             subprocess.run([
                                 soffice_path, '--headless', '--convert-to', 'pdf', '--outdir', output_dir
@@ -838,50 +852,42 @@ def upload_file():
                         except Exception as e:
                             conversion_error[0] = e
                             conversion_complete.set()
-                    
-                    # Start conversion and monitoring in separate threads
+
                     conversion_thread = threading.Thread(target=run_conversion_excel, daemon=True)
                     monitor_thread = threading.Thread(target=monitor_pdf_conversion_excel, daemon=True)
-                    
                     conversion_thread.start()
                     monitor_thread.start()
-                    
-                    # Wait for conversion to complete
                     conversion_thread.join(timeout=300)
                     conversion_complete.set()
                     monitor_thread.join(timeout=5)
-                    
+
                     if conversion_error[0]:
                         raise conversion_error[0]
-                
+
                 except Exception as e:
                     current_app.logger.error(f'PDF conversion error: {e}', exc_info=True)
                     raise Exception(f"PDF conversion failed: {str(e)}")
-                
-                # Collect PDFs and update progress (90% to 100%)
+
                 pdfs_collected = 0
-                for idx, (docx_file, letter_type) in enumerate(docx_files):
+                for docx_file, letter_type, name, file_prefix in all_docx_files:
                     base = os.path.splitext(os.path.basename(docx_file))[0]
-                    # Extract name by removing the _number suffix (e.g., "John Doe_1" -> "John Doe")
-                    name_match = re.match(r'^(.+?)_\d+$', base)
-                    if name_match:
-                        name = name_match.group(1)
-                    else:
-                        name = base  # Fallback if pattern doesn't match
                     pdf_name = get_pdf_filename(letter_type, name)
                     pdf_path = os.path.join(output_dir, base + '.pdf')
+                    zip_entry = f"{file_prefix}/{pdf_name}" if file_prefix else pdf_name
+
                     if os.path.exists(pdf_path):
-                        pdf_files.append((pdf_path, pdf_name))
+                        pdf_files.append((pdf_path, zip_entry))
                         pdfs_collected += 1
-                        # Progress for PDF collection: 90% to 100%
                         progress_pct = 0.9 + (pdfs_collected / total_rows) * 0.1
                         current_progress = int(total_steps * progress_pct)
-                        update_progress(current_progress, total_steps, 
-                                      'Finalizing PDFs...', 
-                                      display_total=total_rows)
+                        update_progress(
+                            current_progress, total_steps,
+                            'Finalizing PDFs...',
+                            display_total=total_rows
+                        )
                     else:
                         errors.append(f'PDF not found for {base}')
-                
+
                 if errors:
                     set_progress_status('error', error='An error occurred during conversion. Please try again.')
                     if temp_dir and os.path.exists(temp_dir):
@@ -891,60 +897,60 @@ def upload_file():
                     with conversion_progress_lock:
                         error_msg = conversion_progress.get('error', 'An error occurred during conversion. Please try again.')
                     return jsonify({'error': error_msg}), 500
-                
-                # All PDFs collected, creating ZIP
-                # Keep status as 'converting' during ZIP creation so ETA still shows
+
                 zip_start_time = time.time()
-                update_progress(total_steps, total_steps, 'All PDFs created! Creating ZIP package...', display_total=total_rows)
-                # Set a small ETA for ZIP creation - estimate based on number of files
-                estimated_zip_time = min(10, max(3, len(pdf_files) * 0.1))  # 0.1s per file, min 3s, max 10s
+                update_progress(
+                    total_steps, total_steps,
+                    'All PDFs created! Creating ZIP package...',
+                    display_total=total_rows
+                )
+                estimated_zip_time = min(10, max(3, len(pdf_files) * 0.1))
                 set_progress_status('converting', eta_seconds=int(estimated_zip_time))
-                # Use lower compression for faster ZIP creation (compresslevel=1 is much faster than 6)
-                # For large files, use a temporary file instead of BytesIO to avoid memory issues
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as zip_file:
-                    for idx, (pdf_path, pdf_name) in enumerate(pdf_files):
-                        # Read file directly - zipfile handles large files efficiently
-                        # Lower compression (compresslevel=1) makes this much faster
+                    for idx, (pdf_path, zip_entry_name) in enumerate(pdf_files):
                         with open(pdf_path, 'rb') as pdf_file:
-                            zip_file.writestr(pdf_name, pdf_file.read())
-                        # Update progress during ZIP creation for large files
+                            zip_file.writestr(zip_entry_name, pdf_file.read())
                         if (idx + 1) % 10 == 0 or idx == len(pdf_files) - 1:
-                            update_progress(total_steps, total_steps, 
-                                          f'Creating ZIP package... ({idx + 1}/{len(pdf_files)} files)', 
-                                          display_total=total_rows)
+                            update_progress(
+                                total_steps, total_steps,
+                                f'Creating ZIP package... ({idx + 1}/{len(pdf_files)} files)',
+                                display_total=total_rows
+                            )
                 zip_creation_time = time.time() - zip_start_time
                 if temp_dir and os.path.exists(temp_dir):
                     shutil.rmtree(temp_dir)
                 if output_dir and os.path.exists(output_dir):
                     shutil.rmtree(output_dir)
                 zip_buffer.seek(0)
-                # Update progress one more time before marking as completed
-                update_progress(total_steps, total_steps, 'Successfully created all PDF appointment letters! Download starting...', display_total=total_rows)
+                update_progress(
+                    total_steps, total_steps,
+                    'Successfully created all PDF appointment letters! Download starting...',
+                    display_total=total_rows
+                )
                 set_progress_status('completed', eta_seconds=0)
-                # Check timeout before sending file
                 if time.time() - request_start_time > request_timeout:
                     current_app.logger.error(f'Request timeout before sending file: {request_id}')
                     set_progress_status('error', error='Request timeout. Please try again.')
-                    return jsonify({'error': 'Request timeout. The conversion took too long. Please try again with a smaller file.'}), 504
-                
-                # Send file with explicit timeout and chunk size for better performance
-                # Use conditional response to prevent timeouts
+                    return jsonify({
+                        'error': 'Request timeout. The conversion took too long. Please try again with a smaller file.'
+                    }), 504
+
                 try:
                     return send_file(
                         zip_buffer,
                         as_attachment=True,
                         download_name=zip_filename,
                         mimetype='application/zip',
-                        max_age=0,  # Prevent caching
-                        conditional=True  # Enable conditional responses (ETag, 304)
+                        max_age=0,
+                        conditional=True
                     )
                 except Exception as send_error:
                     current_app.logger.error(f'Error sending file: {send_error}', exc_info=True)
                     set_progress_status('error', error='Error sending file. Please try again.')
                     return jsonify({'error': 'Error sending file. Please try again.'}), 500
-            
-            except Exception as e:  # Main exception handler for Excel conversion
+
+            except Exception as e:
                 current_app.logger.error(f'Excel conversion error: {e}', exc_info=True)
                 set_progress_status('error', error='An error occurred during conversion. Please try again.')
                 if temp_dir and os.path.exists(temp_dir):
@@ -960,7 +966,7 @@ def upload_file():
                 with conversion_progress_lock:
                     error_msg = conversion_progress.get('error', 'An error occurred during conversion. Please try again.')
                 return jsonify({'error': error_msg}), 500
-        
+
         # Handle single file case
         if len(files) == 1:
             file = files[0]
