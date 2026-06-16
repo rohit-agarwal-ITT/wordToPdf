@@ -4,16 +4,38 @@ import uuid
 import re
 from werkzeug.utils import secure_filename
 from app.utils.word_processor import WordProcessor, OrdinalDateValue
-from app.utils.pdf_generator import PDFGenerator
-from docx2pdf import convert
+from app.utils.validators import FileValidator
+from app.utils.excel_helpers import (
+    ConversionSummary,
+    build_pdf_filename,
+    count_eligible_rows,
+    count_skipped_training_rows,
+    find_column as _find_column_name,
+    get_emp_code_from_row,
+    is_completed_status,
+    is_trainee_designation,
+    is_training_workbook as is_training_excel,
+    sanitize_person_name,
+    validate_excel_upload_files,
+    validate_templates_exist,
+    validate_workbook_columns,
+)
+from app.template_config import (
+    BANGALORE_TEMPLATE_NAME,
+    JAIPUR_TEMPLATE_NAME,
+    SAMPLE_FILES,
+    SAMPLES_DIR,
+    TRAINEE_TEMPLATE_NAME,
+    TRAINING_TEMPLATE_NAME,
+    sample_path,
+)
 import io
-import subprocess
 import zipfile
 import tempfile
 import shutil
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import platform
+from app.utils.libreoffice_helper import convert_docx_files_to_pdf
 from app.utils.error_handler import ErrorHandler
 from datetime import datetime
 import threading
@@ -23,19 +45,14 @@ main = Blueprint('main', __name__)
 
 ALLOWED_EXTENSIONS = {'xlsx'}  # Only Excel files allowed
 
-# Thread safety: Lock for conversion_progress dictionary
+# Progress tracking per conversion (supports concurrent users)
+conversion_progress_store = {}
 conversion_progress_lock = threading.Lock()
+MAX_STORED_CONVERSIONS = 100
+_rate_limit_lock = threading.Lock()
+_rate_limit_buckets = {}
 
-# Concurrent conversion limits: Semaphore to limit simultaneous conversions
-# Default: 2 concurrent conversions (configurable via environment variable)
-MAX_CONCURRENT_CONVERSIONS = int(os.environ.get('MAX_CONCURRENT_CONVERSIONS', '2'))
-conversion_semaphore = threading.Semaphore(MAX_CONCURRENT_CONVERSIONS)
-
-# Track semaphore acquisition time for debugging
-_semaphore_acquisition_time = {}
-_semaphore_lock = threading.Lock()
-
-# Global progress tracking
+# Active progress mirror for the current in-flight conversion in this worker
 conversion_progress = {
     'status': 'idle',  # idle, converting, completed, error
     'current': 0,
@@ -49,8 +66,85 @@ conversion_progress = {
     'files': [],  # List of file statuses
     'display_total': 0,  # Actual number of files/records to display to user
     'display_current': 0,  # Current progress mapped to display_total scale
-    'conversion_id': None  # Unique ID for each conversion to help frontend detect new conversions
+    'conversion_id': None,
+    'cancel_requested': False,
+    'summary': [],
 }
+
+MAX_CONCURRENT_CONVERSIONS = int(os.environ.get('MAX_CONCURRENT_CONVERSIONS', '2'))
+conversion_semaphore = threading.Semaphore(MAX_CONCURRENT_CONVERSIONS)
+_semaphore_acquisition_time = {}
+_semaphore_lock = threading.Lock()
+RATE_LIMIT_REQUESTS = int(os.environ.get('RATE_LIMIT_REQUESTS', '30'))
+RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get('RATE_LIMIT_WINDOW_SECONDS', '300'))
+
+
+def _prune_progress_store():
+    if len(conversion_progress_store) <= MAX_STORED_CONVERSIONS:
+        return
+    oldest_ids = sorted(
+        conversion_progress_store.keys(),
+        key=lambda cid: conversion_progress_store[cid].get('start_time') or 0,
+    )
+    for cid in oldest_ids[: len(conversion_progress_store) - MAX_STORED_CONVERSIONS]:
+        conversion_progress_store.pop(cid, None)
+
+
+def _bind_progress_state(state):
+    global conversion_progress
+    conversion_progress = state
+
+
+def _create_progress_state(conversion_id):
+    state = {
+        'status': 'converting',
+        'current': 0,
+        'total': 0,
+        'message': 'Initializing new conversion...',
+        'error': None,
+        'percentage': 0,
+        'eta_seconds': None,
+        'start_time': time.time(),
+        'elapsed_time': 0,
+        'files': [],
+        'display_total': 0,
+        'display_current': 0,
+        'conversion_id': conversion_id,
+        'cancel_requested': False,
+        'summary': [],
+    }
+    with conversion_progress_lock:
+        conversion_progress_store[conversion_id] = state
+        _prune_progress_store()
+    _bind_progress_state(state)
+    return state
+
+
+def _parse_conversion_id(value):
+    """Use client-provided UUID when valid; otherwise generate a new id."""
+    if value:
+        try:
+            return str(uuid.UUID(str(value)))
+        except (ValueError, AttributeError):
+            pass
+    return str(uuid.uuid4())
+
+
+def _is_cancelled():
+    with conversion_progress_lock:
+        return bool(conversion_progress.get('cancel_requested'))
+
+
+def _check_rate_limit():
+    client_ip = request.remote_addr or 'unknown'
+    now = time.time()
+    with _rate_limit_lock:
+        bucket = _rate_limit_buckets.setdefault(client_ip, [])
+        bucket[:] = [ts for ts in bucket if now - ts < RATE_LIMIT_WINDOW_SECONDS]
+        if len(bucket) >= RATE_LIMIT_REQUESTS:
+            return False
+        bucket.append(now)
+    return True
 
 def reset_progress():
     """Reset progress tracking - thread-safe
@@ -195,51 +289,11 @@ def update_progress(current, total, message, current_file=None, file_status=None
                 })
 
 def allowed_file(filename):
-    # Only allow Excel files (.xlsx)
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'xlsx'
 
-SAMPLES_DIR = 'samples'
-TRAINEE_TEMPLATE_NAME = 'Appointment Letter and Training Agreement.docx'
-JAIPUR_TEMPLATE_NAME = 'Appointment Letter and Employment Agreement - Jaipur.docx'
-BANGALORE_TEMPLATE_NAME = 'Appointment Letter and Employment Agreement - Bangalore.docx'
-TRAINING_TEMPLATE_NAME = 'Training letter.docx'
-
-def _sample_path(filename):
-    return os.path.join(SAMPLES_DIR, filename)
-
-def _find_column_name(columns, target_name):
-    """Return the actual column name matching target_name (case-insensitive)."""
-    target = target_name.strip().lower()
-    for col in columns:
-        if str(col).strip().lower() == target:
-            return str(col)
-    return None
-
-def is_training_excel(columns):
-    """Training workbooks include a Status column to drive letter generation."""
-    return _find_column_name(columns, 'Status') is not None
-
-def count_eligible_rows(df):
-    """Count rows that will produce a letter (all rows, or Completed-only for training sheets)."""
-    if not is_training_excel(df.columns):
-        return len(df)
-    status_col = _find_column_name(df.columns, 'Status')
-    mask = df[status_col].apply(
-        lambda v: str(v).strip().lower() == 'completed' if not pd.isna(v) else False
-    )
-    return int(mask.sum())
-
-def is_completed_status(status_value):
-    """Return True when Status indicates a completed training record."""
-    if status_value is None or pd.isna(status_value):
-        return False
-    return str(status_value).strip().lower() == 'completed'
 
 def enrich_gender_placeholders(data, gender_value):
-    """
-    Add salutation placeholders for training letters based on Gender.
-    Supports both {Mr_Ms} (template) and {Mr_Mrs} (alternate naming).
-    """
+    """Add salutation placeholders for training letters based on Gender."""
     gender = str(gender_value).strip().lower() if gender_value is not None and not pd.isna(gender_value) else ''
     if gender == 'male':
         data['Mr_Ms'] = 'Mr.'
@@ -260,26 +314,17 @@ def enrich_gender_placeholders(data, gender_value):
         data['he_she'] = ''
         data['him_her'] = ''
 
+
 def get_training_template_path():
-    """Path to the training completion letter Word template."""
-    template_path = _sample_path(TRAINING_TEMPLATE_NAME)
+    template_path = sample_path(TRAINING_TEMPLATE_NAME)
     if not os.path.exists(template_path):
         raise FileNotFoundError(f"Training template not found: {template_path}")
     return template_path
 
-def get_appointment_letter_type(designation_value):
-    """Return trainee or employment letter type based on designation."""
-    if designation_value and 'trainee' in str(designation_value).strip().lower():
-        return 'trainee'
-    return 'employment'
 
-def get_pdf_filename(letter_type, name):
-    """Build the download filename for a generated appointment/training PDF."""
-    if letter_type == 'training':
-        return f"Training letter- {name}.pdf"
-    if letter_type == 'trainee':
-        return f"Appointment Letter and Training Agreement - {name}.pdf"
-    return f"Appointment Letter and Employment Agreement - {name}.pdf"
+def get_appointment_letter_type(designation_value):
+    return 'trainee' if is_trainee_designation(designation_value) else 'employment'
+
 
 def get_template_path(location_value, designation_value=None):
     """
@@ -296,13 +341,11 @@ def get_template_path(location_value, designation_value=None):
     if designation_value:
         designation = str(designation_value).strip().lower()
         
-        # Check if designation is Trainee (case-insensitive)
-        if 'trainee' in designation:
-            template_path = _sample_path(TRAINEE_TEMPLATE_NAME)
+        if is_trainee_designation(designation_value):
+            template_path = sample_path(TRAINEE_TEMPLATE_NAME)
 
-            # Fallback to Jaipur template if trainee template doesn't exist
             if not os.path.exists(template_path):
-                template_path = _sample_path(JAIPUR_TEMPLATE_NAME)
+                template_path = sample_path(JAIPUR_TEMPLATE_NAME)
 
             return template_path
     
@@ -322,12 +365,11 @@ def get_template_path(location_value, designation_value=None):
         # Default to Jaipur template if location is empty/None
         template_name = JAIPUR_TEMPLATE_NAME
     
-    template_path = _sample_path(template_name)
-    
-    # Fallback to Jaipur template if location-specific template doesn't exist
+    template_path = sample_path(template_name)
+
     if not os.path.exists(template_path):
-        template_path = _sample_path(JAIPUR_TEMPLATE_NAME)
-    
+        template_path = sample_path(JAIPUR_TEMPLATE_NAME)
+
     return template_path
 
 def _ordinal_suffix(day):
@@ -400,11 +442,6 @@ def format_date_field(value, field_name):
         return str(value)
 
     return _format_ordinal_date(parsed_date)
-
-def _get_soffice_path():
-    if platform.system() == "Windows":
-        return r'C:\Program Files\LibreOffice\program\soffice.exe'
-    return 'soffice'
 
 def _generate_docx_from_row(i, row, df, temp_dir, file_prefix=''):
     """Generate one filled Word document from an Excel row."""
@@ -480,68 +517,77 @@ def _generate_docx_from_row(i, row, df, temp_dir, file_prefix=''):
         word_template = get_template_path(location_value, designation_value)
         letter_type = get_appointment_letter_type(designation_value)
 
-    name_part = str(data.get('Name', 'Candidate')).strip() or 'Candidate'
+    name_part = sanitize_person_name(data.get('Name', 'Candidate'))
+    emp_code = get_emp_code_from_row(row, df.columns)
+    safe_docx_name = FileValidator.sanitize_filename(name_part)
     if file_prefix:
-        docx_name = f"{file_prefix}_{name_part}_{i + 1}.docx"
+        docx_name = f"{file_prefix}_{safe_docx_name}_{i + 1}.docx"
     else:
-        docx_name = f"{name_part}_{i + 1}.docx"
+        docx_name = f"{safe_docx_name}_{i + 1}.docx"
     docx_path = os.path.join(temp_dir, docx_name)
     WordProcessor().fill_placeholders(word_template, docx_path, data)
-    return (docx_path, letter_type, name_part)
-
-def convert_single_file(file_info):
-    """Convert a single file using LibreOffice - optimized for parallel processing"""
-    file_path, filename = file_info
-    output_dir = os.path.dirname(file_path)
-    
-    # Replace all hardcoded soffice_path assignments with platform-aware logic
-    if platform.system() == "Windows":
-        soffice_path = r'C:\Program Files\LibreOffice\program\soffice.exe'
-    else:
-        soffice_path = 'soffice'
-    
-    try:
-        # Convert using LibreOffice
-        result = subprocess.run([
-            soffice_path, '--headless', '--convert-to', 'pdf', '--outdir', output_dir, file_path
-        ], check=True, capture_output=True, timeout=60)
-        
-        output_pdf = file_path.rsplit('.', 1)[0] + '.pdf'
-        
-        # Extract name from filename for PDF naming
-        name_part = filename.rsplit('.', 1)[0]
-        pdf_name = f"{name_part}-Appointment_letter.pdf"
-        
-        return (output_pdf, pdf_name, None)
-    except subprocess.TimeoutExpired:
-        return (None, None, f"Conversion timeout for {filename}")
-    except Exception as e:
-        return (None, None, f"Conversion failed for {filename}: {str(e)}")
+    return (docx_path, letter_type, name_part, i, emp_code)
 
 @main.route('/')
 def index():
     return render_template('index.html')
 
+
+@main.route('/health')
+def health_check():
+    libreoffice_ok, libreoffice_error = FileValidator.validate_libreoffice_installation()
+    templates_ok, templates_error = validate_templates_exist()
+    is_ready = libreoffice_ok and templates_ok
+    return jsonify({
+        'status': 'ok' if is_ready else 'degraded',
+        'libreoffice': {'ok': libreoffice_ok, 'message': libreoffice_error},
+        'templates': {'ok': templates_ok, 'message': templates_error},
+    }), 200 if is_ready else 503
+
+
+@main.route('/samples/<path:filename>')
+def download_sample(filename):
+    if '..' in filename or filename.startswith(('/', '\\')):
+        return jsonify({'error': 'Sample file not found.'}), 404
+    safe_name = os.path.basename(filename)
+    if safe_name not in SAMPLE_FILES:
+        return jsonify({'error': 'Sample file not found.'}), 404
+    file_path = sample_path(safe_name)
+    if not os.path.exists(file_path):
+        return jsonify({'error': 'Sample file not found.'}), 404
+    return send_file(file_path, as_attachment=True, download_name=safe_name)
+
+
+@main.route('/cancel', methods=['POST'])
+def cancel_conversion():
+    payload = request.get_json(silent=True) or {}
+    conversion_id = payload.get('conversion_id')
+    if not conversion_id:
+        return jsonify({'error': 'conversion_id is required.'}), 400
+    with conversion_progress_lock:
+        state = conversion_progress_store.get(conversion_id)
+        if not state:
+            return jsonify({'error': 'Conversion not found or already completed.'}), 404
+        state['cancel_requested'] = True
+        state['message'] = 'Cancellation requested...'
+    return jsonify({'status': 'cancelling', 'conversion_id': conversion_id})
+
+
 @main.route('/progress')
 def get_progress():
-    """Return current conversion progress - thread-safe"""
-    global conversion_progress
+    """Return conversion progress for a specific conversion_id."""
+    conversion_id = request.args.get('conversion_id')
     try:
         with conversion_progress_lock:
-            # Create a copy to avoid holding lock during JSON serialization
-            progress_copy = conversion_progress.copy()
-            # Deep copy the files list to avoid race conditions
-            progress_copy['files'] = conversion_progress['files'].copy()
+            if conversion_id and conversion_id in conversion_progress_store:
+                progress_copy = conversion_progress_store[conversion_id].copy()
+            else:
+                progress_copy = conversion_progress.copy()
+            progress_copy['files'] = list(progress_copy.get('files', []))
+            progress_copy['summary'] = list(progress_copy.get('summary', []))
         return jsonify(progress_copy)
     except Exception as e:
-        # Ensure we always return JSON, even on errors
         current_app.logger.error(f'Error getting progress: {e}', exc_info=True)
-        # Try to get conversion_id even on error to help frontend filter
-        try:
-            with conversion_progress_lock:
-                error_conversion_id = conversion_progress.get('conversion_id')
-        except Exception:
-            error_conversion_id = None
         return jsonify({
             'status': 'error',
             'error': 'Failed to retrieve progress information',
@@ -550,7 +596,7 @@ def get_progress():
             'percentage': 0,
             'message': 'Error retrieving progress',
             'files': [],
-            'conversion_id': error_conversion_id  # Include conversion_id even on error
+            'conversion_id': conversion_id,
         }), 500
 
 @main.route('/upload', methods=['POST'])
@@ -597,56 +643,35 @@ def upload_file():
     monitor_thread = None
     
     try:
-        # Reset progress for new conversion immediately and set initial status
-        # This MUST happen first to clear any previous conversion state
-        # Do this atomically to prevent frontend from seeing stale data
-        new_conversion_id = str(uuid.uuid4())  # Generate unique ID for this conversion
-        with conversion_progress_lock:
-            # Inline reset_progress() logic to avoid deadlock (reset_progress also tries to acquire the same lock)
-            # Explicitly reset all fields to ensure no stale data persists
-            conversion_progress = {
-                'status': 'converting',  # Set to converting immediately
-                'current': 0,
-                'total': 0,
-                'message': 'Initializing new conversion...',
-                'error': None,
-                'percentage': 0,
-                'eta_seconds': None,
-                'start_time': None,
-                'elapsed_time': 0,
-                'files': [],  # Clear old file entries
-                'display_total': 0,  # CRITICAL: Reset to 0 so new conversion sets correct value
-                'display_current': 0,  # CRITICAL: Reset to 0 so new conversion starts fresh
-                'conversion_id': new_conversion_id  # Set unique ID to help frontend detect new conversion
-            }
-        
+        if not _check_rate_limit():
+            return jsonify({
+                'error': 'Too many requests. Please wait a few minutes and try again.'
+            }), 429
+
+        new_conversion_id = _parse_conversion_id(request.form.get('conversion_id'))
+        _create_progress_state(new_conversion_id)
+
+        libreoffice_ok, libreoffice_error = FileValidator.validate_libreoffice_installation()
+        if not libreoffice_ok:
+            set_progress_status('error', error=libreoffice_error)
+            return jsonify({'error': libreoffice_error}), 500
+
+        templates_ok, templates_error = validate_templates_exist()
+        if not templates_ok:
+            set_progress_status('error', error=templates_error)
+            return jsonify({'error': templates_error}), 500
+
         if 'files[]' not in request.files:
-            return jsonify({'error': 'An error occurred during conversion. Please try again.'}), 400
-        
+            return jsonify({'error': 'No files were uploaded. Please select at least one Excel file.'}), 400
+
         files = request.files.getlist('files[]')
-        if not files or files[0].filename == '' or files[0].filename is None:
-            return jsonify({'error': 'No files selected. Please choose an Excel file (.xlsx) to upload.'}), 400
-        
-        # Validate that only Excel files are uploaded and check file size early
-        for file in files:
-            if file and file.filename:
-                if not allowed_file(file.filename):
-                    return jsonify({'error': f'Invalid file type: {file.filename}. Only Excel files (.xlsx) are allowed.'}), 400
-                # Check file size early to prevent large uploads from timing out
-                try:
-                    # Seek to end to get file size
-                    file.seek(0, 2)  # Seek to end
-                    file_size = file.tell()
-                    file.seek(0)  # Reset to beginning
-                    if file_size > 100 * 1024 * 1024:  # 100MB
-                        return jsonify({'error': 'File too large. Maximum size is 100MB.'}), 413
-                except Exception as size_check_error:
-                    current_app.logger.warning(f'Error checking file size: {size_check_error}')
-                    # Continue if we can't check size - let the server handle it
-        
+        upload_ok, upload_error, excel_files = validate_excel_upload_files(files)
+        if not upload_ok:
+            set_progress_status('error', error=upload_error)
+            return jsonify({'error': upload_error}), 400
+
         # Excel to Word to PDF batch logic (supports one or more .xlsx files)
-        excel_files = [f for f in files if f and f.filename]
-        if excel_files and all(f.filename.lower().endswith('.xlsx') for f in excel_files):
+        if excel_files:
             try:
                 temp_dir = tempfile.mkdtemp()
                 output_dir = tempfile.mkdtemp()
@@ -656,6 +681,8 @@ def upload_file():
 
             pdf_files = []
             errors = []
+            summary = ConversionSummary()
+            used_zip_names = set()
 
             try:
                 workbooks = []
@@ -665,47 +692,49 @@ def upload_file():
                     try:
                         excel_file.seek(0)
                         excel_file.save(excel_path)
-                        current_app.logger.info(
-                            f'Saved Excel file: {excel_filename} to {excel_path}, conversion_id: {new_conversion_id}'
-                        )
                     except Exception as e:
-                        current_app.logger.error(f'Error saving Excel file: {e}', exc_info=True)
-                        return jsonify({'error': 'An error occurred while saving the file. Please try again.'}), 400
+                        summary.add_error(f'{excel_filename}: could not be saved ({e})')
+                        continue
 
                     try:
                         df = pd.read_excel(excel_path)
-                        current_app.logger.info(
-                            f'Read Excel file: {excel_filename}, rows: {len(df) if df is not None else 0}, '
-                            f'conversion_id: {new_conversion_id}'
-                        )
                     except Exception as e:
-                        current_app.logger.error(f'Error reading Excel file: {e}', exc_info=True)
-                        return jsonify({
-                            'error': f'An error occurred while reading {excel_filename}. Please ensure the file is valid.'
-                        }), 400
+                        summary.add_error(f'{excel_filename}: could not be read ({e})')
+                        continue
 
                     if df is None or df.empty:
-                        return jsonify({
-                            'error': f'The Excel file "{excel_filename}" appears to be empty. Please check your file.'
-                        }), 400
+                        summary.add_error(f'{excel_filename}: file is empty')
+                        continue
+
+                    if len(df) > 1000:
+                        summary.add_error(f'{excel_filename}: has more than 1000 rows')
+                        continue
+
+                    columns_ok, columns_error = validate_workbook_columns(df)
+                    if not columns_ok:
+                        summary.add_error(f'{excel_filename}: {columns_error}')
+                        continue
 
                     eligible_rows = count_eligible_rows(df)
+                    skipped_rows = count_skipped_training_rows(df)
                     if eligible_rows == 0:
-                        if is_training_excel(df.columns):
-                            return jsonify({
-                                'error': (
-                                    f'No records with Status "Completed" found in "{excel_filename}". '
-                                    'Training letters are only generated for completed records.'
-                                )
-                            }), 400
-                        return jsonify({
-                            'error': f'The Excel file "{excel_filename}" has no records to process.'
-                        }), 400
+                        reason = (
+                            'No records with Status "Completed"'
+                            if is_training_excel(df.columns)
+                            else 'No records to process'
+                        )
+                        summary.add_error(f'{excel_filename}: {reason}')
+                        continue
 
                     file_prefix = os.path.splitext(excel_filename)[0] if len(excel_files) > 1 else ''
-                    workbooks.append((excel_filename, df, file_prefix))
+                    workbooks.append((excel_filename, df, file_prefix, skipped_rows))
 
-                total_rows = sum(count_eligible_rows(df) for _, df, _ in workbooks)
+                if not workbooks:
+                    error_message = 'No valid records found in the uploaded Excel file(s). See summary for details.'
+                    set_progress_status('error', error=error_message)
+                    return jsonify({'error': error_message, 'summary': summary.to_text()}), 400
+
+                total_rows = sum(count_eligible_rows(df) for _, df, _, _ in workbooks)
                 total_steps = total_rows * 2
                 multiple_workbooks = len(workbooks) > 1
 
@@ -729,10 +758,11 @@ def upload_file():
                     conversion_progress['start_time'] = time.time()
                     conversion_progress['elapsed_time'] = 0
                     conversion_progress['eta_seconds'] = None
-                    current_app.logger.info(
-                        f'Set progress for Excel conversion: {total_rows} rows from {len(workbooks)} file(s), '
-                        f'conversion_id: {new_conversion_id}'
-                    )
+                    conversion_progress['summary'] = [
+                        f'{name}: {count_eligible_rows(df)} letter(s)'
+                        + (f', {skipped} skipped' if skipped else '')
+                        for name, df, _, skipped in workbooks
+                    ]
 
                 update_progress(
                     0, total_steps,
@@ -741,54 +771,76 @@ def upload_file():
                 )
 
                 all_docx_files = []
-                for workbook_index, (excel_filename, df, file_prefix) in enumerate(workbooks, start=1):
-                    workbook_rows = count_eligible_rows(df)
+                for workbook_index, (excel_filename, df, file_prefix, skipped_rows) in enumerate(workbooks, start=1):
+                    if _is_cancelled():
+                        raise Exception('Conversion cancelled by user.')
+
+                    if skipped_rows:
+                        for row_idx, row in df.iterrows():
+                            status_col = _find_column_name(df.columns, 'Status')
+                            if status_col and not is_completed_status(row.get(status_col)):
+                                name = sanitize_person_name(row.get('Name', f'Row {row_idx + 1}'))
+                                summary.add_skipped(
+                                    f'{excel_filename} row {row_idx + 1} ({name}): Status not Completed'
+                                )
+
                     workbook_label = (
                         f' ({workbook_index}/{len(workbooks)}: {excel_filename})'
                         if multiple_workbooks else ''
                     )
 
                     def generate_docx(row_tuple, current_df=df, prefix=file_prefix, source_name=excel_filename):
+                        if _is_cancelled():
+                            return None
                         i, row = row_tuple
                         try:
                             return _generate_docx_from_row(i, row, current_df, temp_dir, prefix)
                         except Exception as e:
-                            import traceback
-                            error_msg = (
-                                f"Error generating DOCX for row {i + 1} in {source_name}: {str(e)}\n"
-                                f"{traceback.format_exc()}"
-                            )
-                            print(error_msg)
                             raise Exception(f"Error processing row {i + 1} in {source_name}: {str(e)}")
 
                     with ThreadPoolExecutor(max_workers=4) as executor:
                         futures = {
                             executor.submit(generate_docx, (i, row)): i for i, row in df.iterrows()
                         }
-                        for future in as_completed(futures):
-                            try:
+                        try:
+                            for future in as_completed(futures):
+                                if _is_cancelled():
+                                    for pending in futures:
+                                        pending.cancel()
+                                    raise Exception('Conversion cancelled by user.')
                                 result = future.result()
                                 if result is not None:
                                     all_docx_files.append((*result, file_prefix))
-                            except Exception as e:
-                                import traceback
-                                error_msg = f"Error in future result: {str(e)}\n{traceback.format_exc()}"
-                                print(error_msg)
-                                raise Exception(f"Error generating appointment letter: {str(e)}")
+                                    if result[1] == 'training':
+                                        gender_col = _find_column_name(df.columns, 'Gender')
+                                        row_index = result[3]
+                                        gender_val = df.at[row_index, gender_col] if gender_col else ''
+                                        if not str(gender_val).strip() or str(gender_val).strip().lower() not in ('male', 'female'):
+                                            summary.add_warning(
+                                                f'{excel_filename} row {row_index + 1}: missing or invalid Gender'
+                                            )
 
-                            rows_processed = len(all_docx_files)
-                            progress_pct = rows_processed / total_rows * 0.3 if total_rows else 0
-                            current_progress = int(total_steps * progress_pct)
-                            update_progress(
-                                current_progress, total_steps,
-                                f'Preparing appointment letters... ({rows_processed}/{total_rows} records){workbook_label}',
-                                display_total=total_rows
-                            )
-                            with conversion_progress_lock:
-                                conversion_progress['display_current'] = max(
-                                    conversion_progress.get('display_current', 0),
-                                    rows_processed
+                                rows_processed = len(all_docx_files)
+                                progress_pct = rows_processed / total_rows * 0.3 if total_rows else 0
+                                current_progress = int(total_steps * progress_pct)
+                                update_progress(
+                                    current_progress, total_steps,
+                                    f'Preparing appointment letters... ({rows_processed}/{total_rows} records){workbook_label}',
+                                    display_total=total_rows
                                 )
+                                with conversion_progress_lock:
+                                    conversion_progress['display_current'] = max(
+                                        conversion_progress.get('display_current', 0),
+                                        rows_processed
+                                    )
+                        finally:
+                            if _is_cancelled():
+                                for pending in futures:
+                                    pending.cancel()
+                                executor.shutdown(wait=False, cancel_futures=True)
+
+                if _is_cancelled():
+                    raise Exception('Conversion cancelled by user.')
 
                 update_progress(
                     total_rows, total_steps,
@@ -796,11 +848,9 @@ def upload_file():
                     display_total=total_rows
                 )
 
-                soffice_path = _get_soffice_path()
-
                 try:
                     validated_files = []
-                    for docx_file, _letter_type, _name, _file_prefix in all_docx_files:
+                    for docx_file, _letter_type, _name, _row_idx, _emp_code, _file_prefix in all_docx_files:
                         if os.path.exists(docx_file) and os.path.isfile(docx_file):
                             real_temp_path = os.path.realpath(temp_dir)
                             real_file_path = os.path.realpath(docx_file)
@@ -823,6 +873,10 @@ def upload_file():
                         max_wait_time = 300
 
                         while not conversion_complete.is_set() and (time.time() - start_time) < max_wait_time:
+                            if _is_cancelled():
+                                conversion_error[0] = Exception('Conversion cancelled by user.')
+                                conversion_complete.set()
+                                break
                             if os.path.exists(output_dir):
                                 existing_pdfs = set(f for f in os.listdir(output_dir) if f.endswith('.pdf'))
                                 new_pdfs = existing_pdfs - pdfs_found
@@ -845,9 +899,14 @@ def upload_file():
 
                     def run_conversion_excel():
                         try:
-                            subprocess.run([
-                                soffice_path, '--headless', '--convert-to', 'pdf', '--outdir', output_dir
-                            ] + validated_files, check=True, timeout=300)
+                            if _is_cancelled():
+                                raise Exception('Conversion cancelled by user.')
+                            convert_docx_files_to_pdf(
+                                validated_files,
+                                output_dir,
+                                timeout=300,
+                                should_cancel=_is_cancelled,
+                            )
                             conversion_complete.set()
                         except Exception as e:
                             conversion_error[0] = e
@@ -869,9 +928,9 @@ def upload_file():
                     raise Exception(f"PDF conversion failed: {str(e)}")
 
                 pdfs_collected = 0
-                for docx_file, letter_type, name, file_prefix in all_docx_files:
+                for docx_file, letter_type, name, row_idx, emp_code, file_prefix in all_docx_files:
                     base = os.path.splitext(os.path.basename(docx_file))[0]
-                    pdf_name = get_pdf_filename(letter_type, name)
+                    pdf_name = build_pdf_filename(letter_type, name, used_zip_names)
                     pdf_path = os.path.join(output_dir, base + '.pdf')
                     zip_entry = f"{file_prefix}/{pdf_name}" if file_prefix else pdf_name
 
@@ -886,17 +945,20 @@ def upload_file():
                             display_total=total_rows
                         )
                     else:
-                        errors.append(f'PDF not found for {base}')
+                        msg = f'PDF not found for {base}'
+                        errors.append(msg)
+                        summary.add_error(msg)
 
-                if errors:
-                    set_progress_status('error', error='An error occurred during conversion. Please try again.')
+                if not pdf_files:
+                    error_message = 'No PDFs were generated. ' + (
+                        errors[0] if errors else 'Please verify LibreOffice is installed and templates are valid.'
+                    )
+                    set_progress_status('error', error=error_message)
                     if temp_dir and os.path.exists(temp_dir):
                         shutil.rmtree(temp_dir)
                     if output_dir and os.path.exists(output_dir):
                         shutil.rmtree(output_dir)
-                    with conversion_progress_lock:
-                        error_msg = conversion_progress.get('error', 'An error occurred during conversion. Please try again.')
-                    return jsonify({'error': error_msg}), 500
+                    return jsonify({'error': error_message, 'summary': summary.to_text()}), 500
 
                 zip_start_time = time.time()
                 update_progress(
@@ -908,6 +970,8 @@ def upload_file():
                 set_progress_status('converting', eta_seconds=int(estimated_zip_time))
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as zip_file:
+                    if summary.has_skipped_or_warnings():
+                        zip_file.writestr('summary.txt', summary.to_text())
                     for idx, (pdf_path, zip_entry_name) in enumerate(pdf_files):
                         with open(pdf_path, 'rb') as pdf_file:
                             zip_file.writestr(zip_entry_name, pdf_file.read())
@@ -937,7 +1001,7 @@ def upload_file():
                     }), 504
 
                 try:
-                    return send_file(
+                    response = send_file(
                         zip_buffer,
                         as_attachment=True,
                         download_name=zip_filename,
@@ -945,6 +1009,10 @@ def upload_file():
                         max_age=0,
                         conditional=True
                     )
+                    response.headers['X-Conversion-Id'] = new_conversion_id
+                    if summary.has_skipped_or_warnings():
+                        response.headers['X-Has-Summary'] = 'true'
+                    return response
                 except Exception as send_error:
                     current_app.logger.error(f'Error sending file: {send_error}', exc_info=True)
                     set_progress_status('error', error='Error sending file. Please try again.')
@@ -952,7 +1020,9 @@ def upload_file():
 
             except Exception as e:
                 current_app.logger.error(f'Excel conversion error: {e}', exc_info=True)
-                set_progress_status('error', error='An error occurred during conversion. Please try again.')
+                error_message = str(e) or 'An error occurred during conversion. Please try again.'
+                is_cancelled = 'cancelled by user' in error_message.lower()
+                set_progress_status('error', error=error_message)
                 if temp_dir and os.path.exists(temp_dir):
                     try:
                         shutil.rmtree(temp_dir)
@@ -963,360 +1033,20 @@ def upload_file():
                         shutil.rmtree(output_dir)
                     except Exception:
                         pass
-                with conversion_progress_lock:
-                    error_msg = conversion_progress.get('error', 'An error occurred during conversion. Please try again.')
-                return jsonify({'error': error_msg}), 500
+                status_code = 499 if is_cancelled else 500
+                return jsonify({'error': error_message}), status_code
 
-        # Handle single file case
-        if len(files) == 1:
-            file = files[0]
-            if file and allowed_file(file.filename):
-                filename = secure_filename(file.filename or 'uploaded.docx')
-                unique_filename = f"{uuid.uuid4().hex}_{filename}"
-                input_path = os.path.join(current_app.config['UPLOAD_FOLDER'], unique_filename)
-                file.save(input_path)
-                
-                # For single file: 0-50% preparation, 50-100% PDF conversion
-                with conversion_progress_lock:
-                    conversion_progress['display_total'] = 1
-                update_progress(0, 2, 'Preparing file for PDF conversion...', filename, 'processing', display_total=1)
-                update_progress(1, 2, 'Creating PDF...', filename, 'processing', display_total=1)
-                
-                # Convert single file
-                result = convert_single_file((input_path, filename))
-                output_pdf, pdf_name, error = result
-                
-                if error or output_pdf is None:
-                    set_progress_status('error', error='An error occurred during conversion. Please try again.')
-                    update_progress(1, 2, 'Error converting file', filename, 'error')
-                    os.remove(input_path)
-                    with conversion_progress_lock:
-                        error_msg = conversion_progress['error']
-                    return jsonify({'error': error_msg}), 500
-                
-                update_progress(2, 2, 'PDF created successfully! Preparing download...', filename, 'completed', display_total=1)
-                
-                # Read PDF and clean up
-                with open(output_pdf, 'rb') as f:
-                    pdf_data = f.read()
-                os.remove(input_path)
-                os.remove(output_pdf)
-                
-                set_progress_status('completed')
-                update_progress(2, 2, 'PDF ready! Download starting...', display_total=1)
-                
-                return send_file(
-                    io.BytesIO(pdf_data),
-                    as_attachment=True,
-                    download_name=pdf_name,
-                    mimetype='application/pdf'
-                )
-            else:
-                return jsonify({'error': 'An error occurred during conversion. Please try again.'}), 400
-        
-        # Handle multiple files case - BATCH CONVERSION
-        else:
-            temp_dir = tempfile.mkdtemp()
-            output_dir = tempfile.mkdtemp()
-            pdf_files = []
-            errors = []
-        
-        try:
-            total_files = len(files)
-            with conversion_progress_lock:
-                conversion_progress['display_total'] = total_files
-            update_progress(0, total_files, 'Preparing files for PDF conversion...', display_total=total_files)
-            
-            # Save all files to temp_dir
-            for i, file in enumerate(files):
-                if file and allowed_file(file.filename):
-                    filename = secure_filename(file.filename or f'file_{i}.docx')
-                    file_path = os.path.join(temp_dir, filename)
-                    file.save(file_path)
-                    # Show as PDF preparation, not file preparation
-                    progress_pct = (i + 1) / total_files * 0.2  # First 20% is file prep
-                    current_progress = int(total_files * progress_pct)
-                    update_progress(current_progress, total_files, 
-                                  'Preparing files for PDF conversion...', 
-                                  filename, 'processing', display_total=total_files)
-                else:
-                    set_progress_status('error', error='An error occurred during conversion. Please try again.')
-                    shutil.rmtree(temp_dir)
-                    shutil.rmtree(output_dir)
-                    with conversion_progress_lock:
-                        error_msg = conversion_progress['error']
-                    return jsonify({'error': error_msg}), 400
-            
-            # Progress: 0-20% file prep, 20-90% PDF conversion, 90-100% collection
-            update_progress(int(total_files * 0.2), total_files, 'Creating PDFs. This may take a moment...', display_total=total_files)
-            
-            # Batch convert all files in one soffice call
-            
-            docx_files = [os.path.join(temp_dir, f) for f in os.listdir(temp_dir) if f.lower().endswith(('.docx', '.doc'))]
-            
-            if not docx_files:
-                set_progress_status('error', error='An error occurred during conversion. Please try again.')
-                shutil.rmtree(temp_dir)
-                shutil.rmtree(output_dir)
-                with conversion_progress_lock:
-                    error_msg = conversion_progress['error']
-                return jsonify({'error': error_msg}), 400
-            
-            # Replace all hardcoded soffice_path assignments with platform-aware logic
-            if platform.system() == "Windows":
-                soffice_path = r'C:\Program Files\LibreOffice\program\soffice.exe'
-            else:
-                soffice_path = 'soffice'
-            try:
-                # Validate all file paths before passing to subprocess
-                validated_files = []
-                for docx_file in docx_files:
-                    if os.path.exists(docx_file) and os.path.isfile(docx_file):
-                        # Ensure file is within temp directory
-                        real_temp_path = os.path.realpath(temp_dir)
-                        real_file_path = os.path.realpath(docx_file)
-                        if real_file_path.startswith(real_temp_path):
-                            validated_files.append(docx_file)
-                
-                if not validated_files:
-                    raise Exception("No valid files found for conversion")
-                
-                # Update progress to show PDF conversion is starting
-                update_progress(int(total_files * 0.25), total_files, f'Generating PDFs. Please wait...', display_total=total_files)
-                
-                # Start conversion in background and monitor progress
-                conversion_complete = threading.Event()
-                conversion_error = [None]
-                
-                def monitor_pdf_conversion():
-                    """Monitor output directory for PDF files appearing"""
-                    expected_pdfs = {os.path.splitext(os.path.basename(f))[0] + '.pdf': os.path.basename(f) for f in validated_files}
-                    pdfs_found = set()
-                    start_time = time.time()
-                    max_wait_time = 300  # 5 minutes max
-                    
-                    while not conversion_complete.is_set() and (time.time() - start_time) < max_wait_time:
-                        # Check for new PDFs
-                        if os.path.exists(output_dir):
-                            existing_pdfs = set(f for f in os.listdir(output_dir) if f.endswith('.pdf'))
-                            new_pdfs = existing_pdfs - pdfs_found
-                            
-                            for pdf_file in new_pdfs:
-                                if pdf_file in expected_pdfs:
-                                    pdfs_found.add(pdf_file)
-                                    original_filename = expected_pdfs[pdf_file]
-                                    # Update progress: 25% to 85% based on PDFs found
-                                    progress_pct = 0.25 + (len(pdfs_found) / len(expected_pdfs)) * 0.6
-                                    current_progress = int(total_files * progress_pct)
-                                    update_progress(current_progress, total_files, 
-                                                  f'Creating PDF {len(pdfs_found)} of {len(expected_pdfs)}...', 
-                                                  original_filename, 'processing', display_total=total_files)
-                            
-                            # If all PDFs are found, we're done
-                            if len(pdfs_found) == len(expected_pdfs):
-                                break
-                        
-                        time.sleep(0.5)  # Check every 500ms
-                
-                def run_conversion():
-                    """Run the actual conversion"""
-                    try:
-                        subprocess.run([
-                            soffice_path, '--headless', '--convert-to', 'pdf', '--outdir', output_dir
-                        ] + validated_files, check=True, timeout=300)
-                        conversion_complete.set()
-                    except Exception as e:
-                        conversion_error[0] = e
-                        conversion_complete.set()
-                
-                # Start conversion and monitoring in separate threads
-                conversion_thread = threading.Thread(target=run_conversion, daemon=True)
-                monitor_thread = threading.Thread(target=monitor_pdf_conversion, daemon=True)
-                
-                conversion_thread.start()
-                monitor_thread.start()
-                
-                # Wait for conversion to complete
-                conversion_thread.join(timeout=300)
-                conversion_complete.set()
-                monitor_thread.join(timeout=5)
-                
-                if conversion_error[0]:
-                    raise conversion_error[0]
-                
-                # PDF conversion complete
-                update_progress(int(total_files * 0.85), total_files, 'PDFs created! Finalizing files...', display_total=total_files)
-            except Exception as e:
-                conversion_progress['status'] = 'error'
-                conversion_progress['error'] = 'An error occurred during conversion. Please try again.'
-                shutil.rmtree(temp_dir)
-                shutil.rmtree(output_dir)
-                return jsonify({'error': conversion_progress['error']}), 500
-            
-            # Collect PDFs and rename for zipping, updating progress as each PDF is found
-            pdfs_found = 0
-            for idx, docx_file in enumerate(docx_files):
-                base = os.path.splitext(os.path.basename(docx_file))[0]
-                # Extract name by removing the _number suffix (e.g., "John Doe_1" -> "John Doe")
-                name_match = re.match(r'^(.+?)_\d+$', base)
-                if name_match:
-                    name = name_match.group(1)
-                else:
-                    name = base  # Fallback if pattern doesn't match
-                pdf_name = get_pdf_filename('employment', name)
-                pdf_path = os.path.join(output_dir, base + '.pdf')
-                filename = os.path.basename(docx_file)
-                if os.path.exists(pdf_path):
-                    pdf_files.append((pdf_path, pdf_name))
-                    pdfs_found += 1
-                    # Progress from 85% to 100% as PDFs are collected
-                    progress_value = int(total_files * 0.85) + int((pdfs_found / total_files) * total_files * 0.15)
-                    update_progress(progress_value, total_files, 
-                                  'Finalizing PDFs...', 
-                                  filename, 'completed', display_total=total_files)
-                else:
-                    errors.append(f'PDF not found for {base}')
-                    update_progress(int(total_files * 0.85) + pdfs_found, total_files, 
-                                  'Error creating PDF...', 
-                                  filename, 'error', display_total=total_files)
-            
-            if errors:
-                conversion_progress['status'] = 'error'
-                conversion_progress['error'] = 'An error occurred during conversion. Please try again.'
-                shutil.rmtree(temp_dir)
-                shutil.rmtree(output_dir)
-                return jsonify({'error': conversion_progress['error']}), 500
-            
-            # After all PDFs are collected and before sending the response
-            # Zip all PDFs
-            # Keep status as 'converting' during ZIP creation so ETA still shows
-            zip_start_time = time.time()
-            update_progress(total_files, total_files, 'All PDFs created! Creating ZIP package...', display_total=total_files)
-            # Set a small ETA for ZIP creation - estimate based on number of files
-            estimated_zip_time = min(10, max(3, len(pdf_files) * 0.1))  # 0.1s per file, min 3s, max 10s
-            set_progress_status('converting', eta_seconds=int(estimated_zip_time))
-            # Use lower compression for faster ZIP creation (compresslevel=1 is much faster than 6)
-            zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as zip_file:
-                for idx, (pdf_path, pdf_name) in enumerate(pdf_files):
-                    # Read file directly - zipfile handles large files efficiently
-                    # Lower compression (compresslevel=1) makes this much faster
-                    with open(pdf_path, 'rb') as pdf_file:
-                        zip_file.writestr(pdf_name, pdf_file.read())
-                    # Update progress during ZIP creation for large files
-                    if (idx + 1) % 10 == 0 or idx == len(pdf_files) - 1:
-                        update_progress(total_files, total_files, 
-                                      f'Creating ZIP package... ({idx + 1}/{len(pdf_files)} files)', 
-                                      display_total=total_files)
-            
-            zip_creation_time = time.time() - zip_start_time
-            shutil.rmtree(temp_dir)
-            shutil.rmtree(output_dir)
-            zip_buffer.seek(0)
-            
-            # Update progress one more time before marking as completed
-            update_progress(total_files, total_files, 'Successfully created all PDFs! Download starting...', display_total=total_files)
-            set_progress_status('completed', eta_seconds=0)
-            
-            # Generate dynamic ZIP filename from first file (should be Excel file) - use same name with .zip extension
-            if files and files[0] and files[0].filename:
-                first_filename = secure_filename(files[0].filename)
-                first_base_name = os.path.splitext(first_filename)[0]  # Remove extension
-                zip_filename = f"{first_base_name}.zip"
-            else:
-                zip_filename = 'Appointment_letters.zip'
-            
-            # Check timeout before sending file
-            if time.time() - request_start_time > request_timeout:
-                current_app.logger.error(f'Request timeout before sending file: {request_id}')
-                set_progress_status('error', error='Request timeout. Please try again.')
-                return jsonify({'error': 'Request timeout. The conversion took too long. Please try again with a smaller file.'}), 504
-            
-            # Send file with explicit timeout and chunk size for better performance
-            # Use conditional response to prevent timeouts
-            try:
-                return send_file(
-                    zip_buffer,
-                    as_attachment=True,
-                    download_name=zip_filename,
-                    mimetype='application/zip',
-                    max_age=0,  # Prevent caching
-                    conditional=True  # Enable conditional responses (ETag, 304)
-                )
-            except Exception as send_error:
-                current_app.logger.error(f'Error sending file: {send_error}', exc_info=True)
-                set_progress_status('error', error='Error sending file. Please try again.')
-                return jsonify({'error': 'Error sending file. Please try again.'}), 500
-        except Exception as e:
-            current_app.logger.error(f'Upload error: {e}', exc_info=True)
-            set_progress_status('error', error='An error occurred during conversion. Please try again.')
-            if temp_dir and os.path.exists(temp_dir):
-                try:
-                    shutil.rmtree(temp_dir)
-                except Exception as cleanup_error:
-                    current_app.logger.error(f'Error cleaning up temp_dir: {cleanup_error}')
-            if output_dir and os.path.exists(output_dir):
-                try:
-                    shutil.rmtree(output_dir)
-                except Exception as cleanup_error:
-                    current_app.logger.error(f'Error cleaning up output_dir: {cleanup_error}')
-            with conversion_progress_lock:
-                error_msg = conversion_progress.get('error', 'An error occurred during conversion. Please try again.')
-            return jsonify({'error': error_msg}), 500
-    except Exception as outer_error:
-        # Catch any unhandled exceptions at the top level to prevent 502 errors
-        # This ensures we always return a proper response instead of letting exceptions bubble up
-        current_app.logger.error(f'Unhandled error in upload_file: {outer_error}', exc_info=True)
-        try:
-            set_progress_status('error', error='An unexpected error occurred. Please try again.')
-        except Exception:
-            pass  # If we can't set status, continue anyway
-        # Try to return a proper error response instead of letting it bubble up
-        try:
-            return jsonify({'error': 'An unexpected error occurred during conversion. Please try again.'}), 500
-        except Exception:
-            # If we can't return a response, at least log it
-            current_app.logger.error('Failed to return error response - this may cause 502 error')
+        return jsonify({'error': 'Only Excel files (.xlsx) are supported.'}), 400
+
+    except Exception as e:
+        current_app.logger.error(f'Upload error: {e}', exc_info=True)
+        return jsonify({'error': 'An error occurred during conversion. Please try again.'}), 500
     finally:
-        # Always release semaphore, even if an exception occurs
         if semaphore_acquired:
-            try:
-                conversion_semaphore.release()
-                # Remove from tracking
-                if request_id:
-                    with _semaphore_lock:
-                        _semaphore_acquisition_time.pop(request_id, None)
-                else:
-                    # Fallback: remove oldest entry if request_id not available
-                    with _semaphore_lock:
-                        if _semaphore_acquisition_time:
-                            oldest_key = min(_semaphore_acquisition_time.keys(), 
-                                           key=lambda k: _semaphore_acquisition_time[k])
-                            _semaphore_acquisition_time.pop(oldest_key, None)
-            except Exception as e:
-                current_app.logger.error(f'Error releasing semaphore: {e}', exc_info=True)
-        
-        # Clean up any remaining threads
-        if conversion_thread and conversion_thread.is_alive():
-            current_app.logger.warning('Conversion thread still alive, attempting to join...')
-            conversion_thread.join(timeout=1)
-        
-        if monitor_thread and monitor_thread.is_alive():
-            current_app.logger.warning('Monitor thread still alive, attempting to join...')
-            monitor_thread.join(timeout=1)
-        
-        # Final cleanup of temp directories if they still exist
-        if temp_dir and os.path.exists(temp_dir):
-            try:
-                shutil.rmtree(temp_dir)
-            except Exception as e:
-                current_app.logger.error(f'Final cleanup error for temp_dir: {e}')
-        
-        if output_dir and os.path.exists(output_dir):
-            try:
-                shutil.rmtree(output_dir)
-            except Exception as e:
-                current_app.logger.error(f'Final cleanup error for output_dir: {e}')
+            conversion_semaphore.release()
+            if request_id:
+                with _semaphore_lock:
+                    _semaphore_acquisition_time.pop(request_id, None)
 
 @main.route('/download/<filename>')
 def download_file(filename):

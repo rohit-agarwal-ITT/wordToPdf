@@ -175,20 +175,19 @@ class FileValidator:
         Returns:
             Tuple[bool, str]: (is_installed, error_message)
         """
-        import platform
         import subprocess
-        
+        import platform
+        from app.utils.libreoffice_helper import get_soffice_path, run_soffice
+
         if platform.system() == "Windows":
-            soffice_path = r'C:\Program Files\LibreOffice\program\soffice.exe'
+            soffice_path = get_soffice_path()
             if not os.path.exists(soffice_path):
                 return False, "LibreOffice not found. Please install LibreOffice to convert documents."
         else:
             soffice_path = 'soffice'
         
         try:
-            # Test if LibreOffice can be executed
-            result = subprocess.run([soffice_path, '--version'], 
-                                  capture_output=True, timeout=10)
+            result = run_soffice(['--version'], timeout=10)
             if result.returncode != 0:
                 return False, f"LibreOffice test failed: {result.stderr.decode()}"
             return True, ""

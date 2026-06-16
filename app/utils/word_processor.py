@@ -3,7 +3,9 @@ from docx.shared import RGBColor
 from docx.enum.text import WD_COLOR_INDEX
 import os
 
-TRAINEE_TEMPLATE_FILENAME = 'Appointment Letter and Training Agreement.docx'
+from app.template_config import TRAINEE_TEMPLATE_NAME
+
+TRAINEE_TEMPLATE_FILENAME = TRAINEE_TEMPLATE_NAME
 
 
 class OrdinalDateValue:

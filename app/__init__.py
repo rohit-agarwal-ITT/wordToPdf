@@ -25,18 +25,23 @@ def create_app():
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs(app.config['DOWNLOAD_FOLDER'], exist_ok=True)
     
-    # Setup logging
-    if not app.debug:
-        if not os.path.exists('logs'):
-            os.mkdir('logs')
-        file_handler = RotatingFileHandler('logs/wordtopdf.log', maxBytes=10240, backupCount=10)
+    # Setup logging (always on; avoid rotate failures on Windows by using delay=True)
+    if not os.path.exists('logs'):
+        os.mkdir('logs')
+    if not app.logger.handlers:
+        file_handler = RotatingFileHandler(
+            'logs/wordtopdf.log',
+            maxBytes=1024 * 1024,
+            backupCount=5,
+            delay=True,
+        )
         file_handler.setFormatter(logging.Formatter(
             '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
         ))
         file_handler.setLevel(logging.INFO)
         app.logger.addHandler(file_handler)
         app.logger.setLevel(logging.INFO)
-        app.logger.info('Word to PDF Converter startup')
+    app.logger.info('Word to PDF Converter startup')
     
     # Global error handlers - ensure all errors return JSON
     @app.errorhandler(413)
@@ -93,20 +98,7 @@ def create_app():
                     pass
         return response
     
-    # Cleanup function for temp files
-    def cleanup_temp_files():
-        try:
-            if os.path.exists(app.config['TEMP_FOLDER']):
-                shutil.rmtree(app.config['TEMP_FOLDER'])
-        except Exception as e:
-            app.logger.error(f'Error cleaning up temp files: {e}')
-    
-    # Register cleanup on app context teardown
-    @app.teardown_appcontext
-    def cleanup(error):
-        cleanup_temp_files()
-    
-    # Register blueprints
+    # Per-request temp dirs are created in routes.upload_file and cleaned in finally blocks.
     from app.routes import main
     app.register_blueprint(main)
     

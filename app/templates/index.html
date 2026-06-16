@@ -532,6 +532,35 @@
             color: #721c24;
         }
 
+        .result-actions {
+            margin-top: 16px;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .result-clear-btn {
+            background: transparent;
+            color: #555;
+            border: 1px solid #ccc;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .result-clear-btn:hover {
+            background: #f0f0f0;
+            border-color: #999;
+            color: #333;
+        }
+
+        .result-clear-btn:focus {
+            outline: 2px solid var(--itt-orange);
+            outline-offset: 2px;
+        }
+
         .download-btn {
             background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
             color: white;
@@ -1177,9 +1206,19 @@
             opacity: 0.5;
         }
 
-        body.converting .btn:not(#convertBtn) {
+        body.converting .btn:not(#convertBtn):not(#cancelBtn) {
             pointer-events: none;
             opacity: 0.6;
+        }
+
+        body.converting #cancelBtn:not(:disabled) {
+            pointer-events: auto;
+            opacity: 1;
+            cursor: pointer;
+        }
+
+        #cancelBtn:not(:disabled):hover {
+            background: #5a6268 !important;
         }
 
         .file-preview {
@@ -1626,7 +1665,7 @@
         </div>
         <div class="header">
             <h1><i class="fas fa-file-contract"></i> Appointment Letter Generator</h1>
-            <p>Create professional appointment letters effortlessly! Simply upload your Excel file with employee data, and we'll automatically generate personalized appointment letters for each record. Fast, secure, and hassle-free.</p>
+            <p>Create professional appointment letters effortlessly! Upload one or more Excel files with employee data, and we'll automatically generate personalized appointment letters for each record. Fast, secure, and hassle-free.</p>
         </div>
 
 
@@ -1635,20 +1674,30 @@
             <div class="upload-icon">
                 <i class="fas fa-cloud-upload-alt"></i>
             </div>
-            <div class="upload-text">Drag & Drop your Excel file here</div>
-            <div class="upload-subtext">or click to browse files<br><span style="font-size:0.95em;color:#ef6224;">• Upload <b>.xlsx</b> files only<br>• Each record in your Excel file will generate a separate PDF</span></div>
+            <div class="upload-text">Drag & Drop your Excel files here</div>
+            <div class="upload-subtext">or click to browse files<br><span style="font-size:0.95em;color:#ef6224;">• Upload <b>.xlsx</b> files only<br>• Upload one or more Excel files at once<br>• Each record in your Excel file(s) will generate a separate PDF</span></div>
             <div class="upload-limit">
                 <i class="fas fa-rocket"></i>
                 <span>Generate appointment letters for all records in your Excel file!</span>
             </div>
-            <input type="file" id="fileInput" class="file-input" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="Select Excel file to upload">
+            <input type="file" id="fileInput" class="file-input" multiple accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="Select Excel files to upload">
+        </div>
+
+        <div class="upload-hint">
+            <h3><i class="fas fa-download"></i> Sample Excel Templates</h3>
+            <ul>
+                <li><a href="/samples/Appointment%20Letter%20and%20Employment%20Agreement%20-%20JaipurBangalore.xlsx">Employment letters (Jaipur / Bangalore)</a></li>
+                <li><a href="/samples/Appointment%20Letter%20and%20Training%20Agreement.xlsx">Trainee appointment letters</a></li>
+                <li><a href="/samples/Training%20letter.xlsx">Training completion letters</a></li>
+            </ul>
         </div>
 
         <div class="upload-hint">
             <h3><i class="fas fa-lightbulb"></i> Tips for Best Results</h3>
             <ul>
                 <li><strong>Excel Files Only:</strong> Only .xlsx files are supported - ensure your file is in Excel format</li>
-                <li><strong>Multiple Records:</strong> Each record in your Excel file will generate a separate PDF - keep your data organized</li>
+                <li><strong>Multiple Files:</strong> You can upload several Excel files in one batch — each file is processed and included in the download ZIP</li>
+                <li><strong>Multiple Records:</strong> Each record in your Excel file(s) will generate a separate PDF - keep your data organized</li>
                 <li><strong>File Size:</strong> Keep your Excel file under 100MB for faster processing</li>
                 <li><strong>Data Organization:</strong> Ensure your Excel file has proper column headers and data structure</li>
                 <li><strong>Security:</strong> Your files are processed securely and deleted after conversion</li>
@@ -1659,6 +1708,8 @@
 
         <div style="text-align: center;">
             <button class="btn" id="convertBtn" style="display: none;"><span>Generate Appointment Letters</span></button>
+            <button class="btn" id="cancelBtn" style="display: none; margin-left: 12px; background: #6c757d;"><span>Cancel</span></button>
+            <div id="zipPreview" style="margin-top: 10px; color: #555; font-size: 0.95em; display: none;"></div>
         </div>
 
         <div id="progressDashboard" style="display: none;" class="progress-dashboard">
@@ -1671,7 +1722,7 @@
                     </div>
                     <div class="progress-stat">
                         <div class="progress-stat-value" id="progressFiles">0/0</div>
-                        <div class="progress-stat-label">Files</div>
+                        <div class="progress-stat-label">Records</div>
                     </div>
                     <div class="progress-stat">
                         <div class="progress-stat-value" id="progressETA">--</div>
@@ -1708,6 +1759,8 @@
         const fileInput = document.getElementById('fileInput');
         const fileList = document.getElementById('fileList');
         const convertBtn = document.getElementById('convertBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const zipPreview = document.getElementById('zipPreview');
         const results = document.getElementById('results');
         const accessibilityInfo = document.getElementById('accessibilityInfo');
         const progressDashboard = document.getElementById('progressDashboard');
@@ -1719,10 +1772,65 @@
         const progressFileList = document.getElementById('progressFileList');
 
         let selectedFiles = [];
-        const maxFiles = 1; // Only one Excel file allowed
-        let fileStatusMap = {}; // Track individual file statuses
-        let lastProgressPercentage = 0; // Track last percentage to prevent decreases
-        let lastDisplayCurrent = 0; // Track last display current to prevent decreases
+        const maxFiles = 20;
+        let fileStatusMap = {};
+        let lastProgressPercentage = 0;
+        let lastDisplayCurrent = 0;
+        let currentConversionId = null;
+        let cancelRequested = false;
+
+        function updateZipPreview() {
+            if (selectedFiles.length === 0) {
+                zipPreview.style.display = 'none';
+                cancelBtn.style.display = 'none';
+                return;
+            }
+            const zipName = selectedFiles.length === 1
+                ? `${selectedFiles[0].name.replace(/\.xlsx$/i, '')}.zip`
+                : 'Appointment_letters.zip';
+            zipPreview.style.display = 'block';
+            zipPreview.textContent = `Download will be named: ${zipName}`;
+        }
+
+        function isDuplicateFile(file) {
+            return selectedFiles.some(existing => existing.name === file.name && existing.size === file.size);
+        }
+
+        function generateConversionId() {
+            if (window.crypto && typeof crypto.randomUUID === 'function') {
+                return crypto.randomUUID();
+            }
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        async function requestCancellation() {
+            if (!currentConversionId || cancelRequested) return;
+            cancelRequested = true;
+            cancelBtn.disabled = true;
+            progressMessage.innerHTML = '<span class="loading-spinner"></span><span>Cancelling conversion...</span>';
+            try {
+                const response = await fetch('/cancel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ conversion_id: currentConversionId })
+                });
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.error || 'Cancel request failed');
+                }
+                announceToScreenReader('Cancellation requested');
+            } catch (e) {
+                cancelRequested = false;
+                cancelBtn.disabled = false;
+                showModal('Could not cancel the conversion. Please wait for it to finish.');
+            }
+        }
+
+        cancelBtn.addEventListener('click', requestCancellation);
 
         // Loader functions (defined once, used throughout)
 
@@ -1843,17 +1951,32 @@
             }
 
             if (selectedFiles.length + validFiles.length > maxFiles) {
-                showModal(`Only one Excel file can be uploaded at a time. Please select a single Excel file (.xlsx).`);
+                showModal(`You can upload up to ${maxFiles} Excel files at a time. Please remove some files and try again.`);
                 fileInput.value = '';
                 return;
             }
 
-            selectedFiles = [...selectedFiles, ...validFiles];
+            const newValidFiles = validFiles.filter(file => {
+                if (isDuplicateFile(file)) {
+                    showModal(`"${file.name}" is already in the list.`);
+                    return false;
+                }
+                return true;
+            });
+
+            if (newValidFiles.length === 0) {
+                fileInput.value = '';
+                return;
+            }
+
+            selectedFiles = [...selectedFiles, ...newValidFiles];
             displayFileList();
+            updateZipPreview();
             // Ensure file list and convert button are visible
             if (selectedFiles.length > 0) {
                 fileList.style.display = 'block';
                 convertBtn.style.display = 'inline-block';
+                cancelBtn.style.display = 'none';
             }
             announceToScreenReader(`${validFiles.length} files added. Total: ${selectedFiles.length} files`);
         }
@@ -1878,7 +2001,7 @@
                 fileItem.innerHTML = `
                     <div class="file-info">
                         <div class="file-icon">
-                            <i class="fas fa-file-word"></i>
+                            <i class="fas fa-file-excel"></i>
                         </div>
                         <div class="file-details">
                             <div class="file-name">${file.name}</div>
@@ -1915,6 +2038,7 @@
             const removedFile = selectedFiles[index];
             selectedFiles.splice(index, 1);
             displayFileList();
+            updateZipPreview();
             // Reset file input to allow re-uploading the same or different file
             fileInput.value = '';
             announceToScreenReader(`Removed ${removedFile.name}`);
@@ -1953,8 +2077,8 @@
             if (!fileCountForDisplay || fileCountForDisplay === 0) {
                 // For Excel conversions, wait for backend to set display_total
                 // Don't use selectedFiles.length as it's 1 (the Excel file), not the row count
-                if (progressData.status === 'converting' && selectedFiles.length === 1 && 
-                    selectedFiles[0] && selectedFiles[0].name.toLowerCase().endsWith('.xlsx')) {
+                if (progressData.status === 'converting' && selectedFiles.length > 0 &&
+                    selectedFiles.every(file => file.name.toLowerCase().endsWith('.xlsx'))) {
                     // Excel conversion - wait for backend to set display_total
                     // Don't update file count yet, keep showing 0/0 or last known value
                     fileCountForDisplay = fileCountForDisplay || 0;
@@ -2057,7 +2181,7 @@
                     fileItem.innerHTML = `
                         <div class="progress-file-info">
                             <div class="progress-file-icon">
-                                <i class="fas fa-file-word"></i>
+                                <i class="fas fa-file-excel"></i>
                             </div>
                             <div class="progress-file-name" title="${file.name}">${file.name}</div>
                         </div>
@@ -2079,7 +2203,7 @@
                     fileItem.innerHTML = `
                         <div class="progress-file-info">
                             <div class="progress-file-icon">
-                                <i class="fas fa-file-word"></i>
+                                <i class="fas fa-file-excel"></i>
                             </div>
                             <div class="progress-file-name" title="${file.name}">${file.name}</div>
                         </div>
@@ -2110,6 +2234,11 @@
                 suggestions.push('Verify file extension is .xlsx (Excel files only)');
                 suggestions.push('Check if files are corrupted');
                 suggestions.push('Try opening files in Microsoft Office/LibreOffice to verify they\'re valid');
+            } else if (lowerError.includes('rate') || lowerError.includes('too many')) {
+                suggestions.push('Wait a minute before uploading again');
+                suggestions.push('Avoid starting multiple conversions at once');
+            } else if (lowerError.includes('cancel')) {
+                suggestions.push('Start a new conversion when ready');
             } else if (lowerError.includes('permission') || lowerError.includes('access')) {
                 suggestions.push('Check file permissions');
                 suggestions.push('Ensure the application has write access to temp directories');
@@ -2126,6 +2255,34 @@
 
             return suggestions;
         }
+
+        function displayCancelledMessage() {
+            return `
+                <div class="result-item">
+                    <div class="result-header">
+                        <div class="result-title">Conversion Cancelled</div>
+                        <div class="result-status error">Stopped</div>
+                    </div>
+                    <div style="margin-top: 8px;">The conversion was stopped. You can upload new files and try again.</div>
+                    <div class="result-actions">
+                        <button type="button" class="result-clear-btn">Clear</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function clearResults() {
+            results.innerHTML = '';
+            zipPreview.style.display = 'none';
+            zipPreview.textContent = '';
+        }
+
+        results.addEventListener('click', (e) => {
+            if (e.target.closest('.result-clear-btn')) {
+                clearResults();
+                announceToScreenReader('Message cleared');
+            }
+        });
 
         function displayError(error, context = 'conversion') {
             const errorMessage = error.message || error || 'An unknown error occurred';
@@ -2152,6 +2309,9 @@
             
             errorHTML += `
                         </ul>
+                    </div>
+                    <div class="result-actions">
+                        <button type="button" class="result-clear-btn">Clear</button>
                     </div>
                 </div>
             `;
@@ -2195,10 +2355,13 @@
             // Declare all variables at the start to avoid scope issues
             let progressInterval = null;
             let isDownloading = false;
-            let currentConversionId = null; // Track current conversion ID to detect new conversions
+            currentConversionId = generateConversionId();
+            cancelRequested = false;
 
             // Disable UI interactions
             convertBtn.disabled = true;
+            cancelBtn.disabled = false;
+            cancelBtn.style.display = 'inline-block';
             document.body.classList.add('converting');
             
             // Disable all remove buttons
@@ -2245,20 +2408,22 @@
             });
             
             // Initialize progress dashboard
-            const isExcel = selectedFiles.length === 1 && selectedFiles[0].name.toLowerCase().endsWith('.xlsx');
+            const isExcelUpload = selectedFiles.length > 0 &&
+                selectedFiles.every(file => file.name.toLowerCase().endsWith('.xlsx'));
             updateProgressDashboard({
                 current: 0,
                 total: selectedFiles.length,
                 display_total: selectedFiles.length,
                 display_current: 0,
                 percentage: 0,
-                message: isExcel 
-                    ? 'Generating appointment letters from Excel file...'
+                message: isExcelUpload
+                    ? `Generating appointment letters from ${selectedFiles.length} Excel file(s)...`
                     : 'Preparing files for PDF generation...',
                 files: selectedFiles.map(f => ({ name: f.name, status: 'pending' }))
             });
 
             const formData = new FormData();
+            formData.append('conversion_id', currentConversionId);
             selectedFiles.forEach(file => {
                 formData.append('files[]', file);
             });
@@ -2274,7 +2439,10 @@
                                 return;
                             }
                             
-                            const progressResponse = await fetch('/progress');
+                            const progressUrl = currentConversionId
+                                ? `/progress?conversion_id=${encodeURIComponent(currentConversionId)}`
+                                : '/progress';
+                            const progressResponse = await fetch(progressUrl);
                             if (!progressResponse.ok) {
                                 throw new Error(`Progress check failed: ${progressResponse.status} ${progressResponse.statusText}`);
                             }
@@ -2380,6 +2548,7 @@
                     progressDashboard.style.display = 'none';
                     progressDashboard.classList.remove('active');
                     document.body.classList.remove('converting');
+                    cancelBtn.style.display = 'none';
                     results.innerHTML = displayError({
                         message: 'Your upload is too large. Maximum size is 100 MB total. Please select fewer or smaller files.'
                     }, 'upload');
@@ -2389,13 +2558,36 @@
                     return;
                 }
 
+                if (response.status === 429) {
+                    progressDashboard.style.display = 'none';
+                    progressDashboard.classList.remove('active');
+                    document.body.classList.remove('converting');
+                    cancelBtn.style.display = 'none';
+                    let rateLimitMessage = 'Too many requests. Please wait a moment and try again.';
+                    try {
+                        const rateLimitData = await safeJsonParse(response);
+                        if (rateLimitData.error) rateLimitMessage = rateLimitData.error;
+                    } catch (e) { /* use default message */ }
+                    results.innerHTML = displayError({ message: rateLimitMessage }, 'upload');
+                    convertBtn.disabled = false;
+                    return;
+                }
+
+                const responseConversionId = response.headers.get('X-Conversion-Id');
+                if (responseConversionId) {
+                    currentConversionId = responseConversionId;
+                }
+
                 const contentType = response.headers.get('content-type');
                 if (contentType && (contentType.includes('application/pdf') || contentType.includes('application/zip'))) {
                     // Get the last progress data to preserve display_total and display_current
                     // This is important for Excel files where display_total != selectedFiles.length
                     let lastProgressData = null;
                     try {
-                        const lastProgressResponse = await fetch('/progress');
+                        const lastProgressUrl = currentConversionId
+                            ? `/progress?conversion_id=${encodeURIComponent(currentConversionId)}`
+                            : '/progress';
+                        const lastProgressResponse = await fetch(lastProgressUrl);
                         if (lastProgressResponse.ok) {
                             lastProgressData = await safeJsonParse(lastProgressResponse);
                         }
@@ -2450,14 +2642,20 @@
                         progressDashboard.classList.remove('active');
                         document.body.classList.remove('converting');
                         convertBtn.disabled = false;
+                        cancelBtn.style.display = 'none';
                         selectedFiles = [];
                         displayFileList();
+                        updateZipPreview();
                         const fileType = contentType.includes('application/pdf') ? 'PDF' : 'ZIP file';
                         const isZip = contentType.includes('application/zip');
-                        const successMessage = isZip 
-                            ? `<i class="fas fa-check-circle" style="color: #28a745; margin-right: 8px;"></i>"${filename}" has been downloaded successfully to your device.`
+                        const hasSummary = response.headers.get('X-Has-Summary') === 'true';
+                        const summaryNote = hasSummary
+                            ? ' See summary.txt in the ZIP for skipped rows or warnings.'
+                            : '';
+                        const successMessage = isZip
+                            ? `<i class="fas fa-check-circle" style="color: #28a745; margin-right: 8px;"></i>"${filename}" has been downloaded successfully.${summaryNote}`
                             : `<i class="fas fa-check-circle" style="color: #28a745; margin-right: 8px;"></i>"${filename}" has been downloaded successfully to your device.`;
-                        results.innerHTML = `<div class="result-item success"><div class="result-header"><div class="result-title">Conversion Complete!</div><div class="result-status success">Downloaded</div></div><div style="margin-top: 8px;">${successMessage}</div></div>`;
+                        results.innerHTML = `<div class="result-item success"><div class="result-header"><div class="result-title">Conversion Complete!</div><div class="result-status success">Downloaded</div></div><div style="margin-top: 8px;">${successMessage}</div><div class="result-actions"><button type="button" class="result-clear-btn">Clear</button></div></div>`;
                         announceToScreenReader(`Conversion completed successfully. ${fileType} file downloaded.`);
                     }, 300);
                     return;
@@ -2465,21 +2663,32 @@
 
                 // Check if response is JSON before parsing
                 if (!response.ok) {
-                    // For error responses, try to parse JSON if possible
-                    const contentType = response.headers.get('content-type') || '';
-                    if (contentType.includes('application/json')) {
+                    const errorContentType = response.headers.get('content-type') || '';
+                    let errorMessage = `Server error: ${response.status} ${response.statusText}`;
+
+                    if (errorContentType.includes('application/json')) {
                         try {
-                            const errorData = await safeJsonParse(response);
-                            throw new Error(errorData.error || `Server error: ${response.status} ${response.statusText}`);
+                            const errorData = await response.json();
+                            if (errorData && errorData.error) {
+                                errorMessage = errorData.error;
+                            }
                         } catch (parseError) {
-                            // If JSON parsing fails, use status text
-                            throw new Error(`Server error: ${response.status} ${response.statusText}`);
+                            // Keep default errorMessage when JSON parsing fails
                         }
                     } else {
-                        // Non-JSON error response (e.g., from proxy/load balancer)
-                        const errorText = await response.text();
-                        throw new Error(`Server error: ${response.status} ${response.statusText}. ${errorText.substring(0, 200)}`);
+                        try {
+                            const errorText = await response.text();
+                            if (errorText) {
+                                errorMessage = `${errorMessage}. ${errorText.substring(0, 200)}`;
+                            }
+                        } catch (readError) {
+                            // Keep default errorMessage
+                        }
                     }
+
+                    const uploadError = new Error(errorMessage);
+                    uploadError.status = response.status;
+                    throw uploadError;
                 }
                 
                 const data = await safeJsonParse(response);
@@ -2501,8 +2710,19 @@
                 progressDashboard.style.display = 'none';
                 progressDashboard.classList.remove('active');
                 document.body.classList.remove('converting');
-                results.innerHTML = displayError(error, 'conversion');
-                announceToScreenReader('Conversion failed: ' + (error.message || 'Unknown error'));
+                cancelBtn.style.display = 'none';
+                cancelBtn.disabled = false;
+                zipPreview.style.display = 'none';
+                zipPreview.textContent = '';
+                const isCancelled = error.status === 499 ||
+                    (error.message || '').toLowerCase().includes('cancel');
+                if (isCancelled) {
+                    results.innerHTML = displayCancelledMessage();
+                    announceToScreenReader('Conversion cancelled');
+                } else {
+                    results.innerHTML = displayError(error, 'conversion');
+                    announceToScreenReader('Conversion failed: ' + (error.message || 'Unknown error'));
+                }
             } finally {
                 // Ensure progress polling is stopped
                 if (progressInterval) {
@@ -2513,8 +2733,12 @@
                 // Re-enable UI interactions
                 document.body.classList.remove('converting');
                 convertBtn.disabled = false;
+                cancelBtn.style.display = 'none';
+                cancelBtn.disabled = false;
+                cancelRequested = false;
                 selectedFiles = [];
                 displayFileList();
+                updateZipPreview();
                 fileInput.value = '';
                 convertBtn.style.display = 'none';
             }
