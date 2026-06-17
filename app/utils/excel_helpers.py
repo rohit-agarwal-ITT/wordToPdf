@@ -6,6 +6,18 @@ from typing import List, Optional, Set, Tuple
 import pandas as pd
 
 from app.utils.validators import FileValidator
+from app.template_config import BANGALORE_TEMPLATE_NAME, JAIPUR_TEMPLATE_NAME, TRAINEE_TEMPLATE_NAME
+
+EMPLOYMENT_TRAINEE_ADDRESS_PLACEHOLDERS = (
+    'Trainee Address line1',
+    'Trainee Address line2',
+    'Trainee Address line3',
+)
+TRAINING_AGREEMENT_TRAINEE_ADDRESS_PLACEHOLDERS = (
+    'Trainee Address line 1',
+    'Trainee Address line 2',
+    'Trainee Address line 3',
+)
 
 MAX_EXCEL_FILES = 20
 MAX_ROWS_PER_SHEET = 1000
@@ -13,7 +25,48 @@ MAX_ROWS_PER_SHEET = 1000
 TRAINING_REQUIRED_COLUMNS = ['Name', 'Status', 'Gender']
 APPOINTMENT_REQUIRED_COLUMNS = ['Name', 'Designation']
 TRAINING_OPTIONAL_COLUMNS = ['EmpCode', 'Date', 'Start_date', 'End_date']
-APPOINTMENT_OPTIONAL_COLUMNS = ['Place of Joining', 'Email', 'Contact', 'Date of Joining']
+APPOINTMENT_OPTIONAL_COLUMNS = [
+    'Place of Joining', 'Email', 'Contact', 'Date of Joining',
+    'Trainee Address 1', 'Trainee Address 2', 'Trainee Address 3',
+]
+
+
+def _string_cell_value(value) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ''
+    text = str(value).strip()
+    return '' if text.lower() in ('nan', 'none') else text
+
+
+def enrich_trainee_address_lines(data: dict, columns, template_filename: str) -> None:
+    """Map Excel Trainee Address 1/2/3 columns to Word template placeholders."""
+    template_lower = os.path.basename(template_filename).lower()
+    is_employment_template = template_lower in (
+        JAIPUR_TEMPLATE_NAME.lower(),
+        BANGALORE_TEMPLATE_NAME.lower(),
+    )
+    is_trainee_agreement = template_lower == TRAINEE_TEMPLATE_NAME.lower()
+
+    if not (is_employment_template or is_trainee_agreement):
+        return
+
+    placeholder_keys = (
+        EMPLOYMENT_TRAINEE_ADDRESS_PLACEHOLDERS
+        if is_employment_template
+        else TRAINING_AGREEMENT_TRAINEE_ADDRESS_PLACEHOLDERS
+    )
+
+    excel_columns = (
+        find_column(columns, 'Trainee Address 1'),
+        find_column(columns, 'Trainee Address 2'),
+        find_column(columns, 'Trainee Address 3'),
+    )
+
+    for placeholder_key, excel_col in zip(placeholder_keys, excel_columns):
+        if excel_col is not None:
+            data[placeholder_key] = _string_cell_value(data.get(excel_col, ''))
+        elif placeholder_key not in data:
+            data[placeholder_key] = ''
 
 
 def find_column(columns, target_name: str) -> Optional[str]:

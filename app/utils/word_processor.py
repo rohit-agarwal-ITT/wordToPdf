@@ -3,7 +3,7 @@ from docx.shared import RGBColor
 from docx.enum.text import WD_COLOR_INDEX
 import os
 
-from app.template_config import TRAINEE_TEMPLATE_NAME
+from app.template_config import TRAINEE_TEMPLATE_NAME, JAIPUR_TEMPLATE_NAME, BANGALORE_TEMPLATE_NAME
 
 TRAINEE_TEMPLATE_FILENAME = TRAINEE_TEMPLATE_NAME
 
@@ -558,6 +558,41 @@ class WordProcessor:
             return ''
         return ' '.join(str(key).strip().lower().split())
     
+    def _is_removable_address_line_placeholder(self, placeholder):
+        """
+        Address line placeholders whose paragraph should be removed when empty.
+        Covers trainee agreement and Jaipur employment templates.
+        """
+        if not placeholder:
+            return False
+        normalized = self._normalize_key(placeholder)
+        removable_keys = {
+            'trainee address line 1', 'trainee address line1', 'trainee address 1',
+            'trainee address line 2', 'trainee address line2', 'trainee address 2',
+            'trainee address line 3', 'trainee address line3', 'trainee address 3',
+        }
+        if normalized in removable_keys:
+            return True
+        return self._is_address_2_or_3_placeholder(placeholder)
+
+    def _mark_empty_address_line_paragraph(
+        self,
+        original_text,
+        paragraph,
+        para_idx,
+        removal_list,
+        is_trainee_template,
+        is_employment_address_template,
+    ):
+        if not (is_trainee_template or is_employment_address_template):
+            return
+        import re
+        placeholders = re.findall(r'\{([^}]+)\}', original_text)
+        if not any(self._is_removable_address_line_placeholder(p) for p in placeholders):
+            return
+        if not paragraph.text.strip() and para_idx not in removal_list:
+            removal_list.append(para_idx)
+
     def _is_address_2_or_3_placeholder(self, placeholder):
         """
         Check if a placeholder is for Address 2 or Address 3.
@@ -623,7 +658,8 @@ class WordProcessor:
         Save the filled document to output_path.
         Handles placeholders that may be split across multiple runs due to formatting.
         Uses case-insensitive and whitespace-normalized matching for flexible column name matching.
-        For trainee templates, removes empty paragraphs for Address 2 and Address 3 when they are empty.
+        For trainee, Jaipur, and Bangalore templates, removes empty paragraphs for
+        Trainee Address line 1/2/3 when the Excel value is blank.
         """
         if not os.path.exists(template_path):
             raise FileNotFoundError(f"Template not found: {template_path}")
@@ -632,6 +668,11 @@ class WordProcessor:
         is_trainee_template = (
             os.path.basename(template_path).lower() == TRAINEE_TEMPLATE_FILENAME.lower()
         )
+        template_basename = os.path.basename(template_path).lower()
+        is_employment_address_template = template_basename in (
+            JAIPUR_TEMPLATE_NAME.lower(),
+            BANGALORE_TEMPLATE_NAME.lower(),
+        )
         
         try:
             doc = Document(template_path)
@@ -639,7 +680,7 @@ class WordProcessor:
             raise Exception(f"Error opening template: {str(e)}")
         
         try:
-            # Track paragraphs that should be removed (for trainee template address 2/3)
+            # Track paragraphs that should be removed when address lines are empty
             paragraphs_to_remove = []
             
             # Replace in paragraphs
@@ -662,42 +703,23 @@ class WordProcessor:
                     current_text = paragraph.text
                     matches = self._find_placeholder_matches(current_text, data)
                     for placeholder, (data_key, value) in matches.items():
-                        # Only replace if placeholder still exists (exact match didn't work)
                         if f'{{{placeholder}}}' in current_text:
-                            # Check if this is address 2 or address 3 for trainee template
-                            is_address_2_or_3 = self._is_address_2_or_3_placeholder(placeholder)
-                            is_empty = self._is_empty_value(value)
-                            
-                            # Replace the placeholder
                             self._replace_placeholder_in_paragraph(paragraph, placeholder, value)
-                            
-                            # For trainee template, if address 2 or 3 is empty, mark paragraph for removal
-                            if is_trainee_template and is_address_2_or_3 and is_empty:
-                                # Check if paragraph is now empty or only whitespace
-                                updated_text = paragraph.text.strip()
-                                if not updated_text or updated_text == '':
-                                    paragraphs_to_remove.append(para_idx)
-                            
-                            # Update current_text for next iteration
                             current_text = paragraph.text
                 except Exception as e:
                     # Log but continue processing
                     pass
-                
-                # Also check for address 2/3 in exact matches
-                if is_trainee_template:
-                    current_text_after = paragraph.text.strip()
-                    # Check if this paragraph originally contained address 2 or 3 placeholder and is now empty
-                    # Extract placeholders from original text using regex
-                    import re
-                    placeholder_pattern = r'\{([^}]+)\}'
-                    original_placeholders = re.findall(placeholder_pattern, original_text)
-                    has_address_2_3_placeholder = any(self._is_address_2_or_3_placeholder(p) for p in original_placeholders)
-                    if has_address_2_3_placeholder and not current_text_after:
-                        if para_idx not in paragraphs_to_remove:
-                            paragraphs_to_remove.append(para_idx)
+
+                self._mark_empty_address_line_paragraph(
+                    original_text,
+                    paragraph,
+                    para_idx,
+                    paragraphs_to_remove,
+                    is_trainee_template,
+                    is_employment_address_template,
+                )
             
-            # Remove empty paragraphs for address 2/3 in trainee template (in reverse order to maintain indices)
+            # Remove empty address-line paragraphs (reverse order to preserve indices)
             if paragraphs_to_remove:
                 # Get unique sorted indices in reverse order
                 unique_indices = sorted(set(paragraphs_to_remove), reverse=True)
@@ -730,40 +752,21 @@ class WordProcessor:
                                 current_text = paragraph.text
                                 matches = self._find_placeholder_matches(current_text, data)
                                 for placeholder, (data_key, value) in matches.items():
-                                    # Only replace if placeholder still exists (exact match didn't work)
                                     if f'{{{placeholder}}}' in current_text:
-                                        # Check if this is address 2 or address 3 for trainee template
-                                        is_address_2_or_3 = self._is_address_2_or_3_placeholder(placeholder)
-                                        is_empty = self._is_empty_value(value)
-                                        
-                                        # Replace the placeholder
                                         self._replace_placeholder_in_paragraph(paragraph, placeholder, value)
-                                        
-                                        # For trainee template, if address 2 or 3 is empty, mark paragraph for removal
-                                        if is_trainee_template and is_address_2_or_3 and is_empty:
-                                            # Check if paragraph is now empty or only whitespace
-                                            updated_text = paragraph.text.strip()
-                                            if not updated_text or updated_text == '':
-                                                cell_paragraphs_to_remove.append(para_idx)
-                                        
-                                        # Update current_text for next iteration
                                         current_text = paragraph.text
                             except Exception as e:
                                 # Log but continue processing
                                 pass
-                            
-                            # Also check for address 2/3 in exact matches
-                            if is_trainee_template:
-                                current_text_after = paragraph.text.strip()
-                                # Check if this paragraph originally contained address 2 or 3 placeholder and is now empty
-                                # Extract placeholders from original text using regex
-                                import re
-                                placeholder_pattern = r'\{([^}]+)\}'
-                                original_placeholders = re.findall(placeholder_pattern, original_text)
-                                has_address_2_3_placeholder = any(self._is_address_2_or_3_placeholder(p) for p in original_placeholders)
-                                if has_address_2_3_placeholder and not current_text_after:
-                                    if para_idx not in cell_paragraphs_to_remove:
-                                        cell_paragraphs_to_remove.append(para_idx)
+
+                            self._mark_empty_address_line_paragraph(
+                                original_text,
+                                paragraph,
+                                para_idx,
+                                cell_paragraphs_to_remove,
+                                is_trainee_template,
+                                is_employment_address_template,
+                            )
                         
                         # Remove empty paragraphs in this cell (in reverse order)
                         if cell_paragraphs_to_remove:

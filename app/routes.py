@@ -19,6 +19,7 @@ from app.utils.excel_helpers import (
     validate_excel_upload_files,
     validate_templates_exist,
     validate_workbook_columns,
+    enrich_trainee_address_lines,
 )
 from app.template_config import (
     BANGALORE_TEMPLATE_NAME,
@@ -516,6 +517,8 @@ def _generate_docx_from_row(i, row, df, temp_dir, file_prefix=''):
 
         word_template = get_template_path(location_value, designation_value)
         letter_type = get_appointment_letter_type(designation_value)
+
+    enrich_trainee_address_lines(data, df.columns, os.path.basename(word_template))
 
     name_part = sanitize_person_name(data.get('Name', 'Candidate'))
     emp_code = get_emp_code_from_row(row, df.columns)
